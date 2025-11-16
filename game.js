@@ -1213,10 +1213,10 @@ class Game {
         return Math.floor(num).toString();
     }
 
-    saveGame() {
+    async saveGame() {
         const saveData = {
             state: this.state,
-            version: '1.1', // Updated version for better tracking
+            version: '1.2', // Updated version with Firebase support
             savedAt: Date.now(),
             checksum: this.generateChecksum(this.state) // Add checksum for data integrity
         };
@@ -1226,7 +1226,26 @@ class Game {
             localStorage.setItem('oilGame_test', 'test');
             localStorage.removeItem('oilGame_test');
 
+            // Local backup
             localStorage.setItem('oilGame', JSON.stringify(saveData));
+
+            // Send to Firebase if available
+            if (window.db && this.telegramUser) {
+                try {
+                    const playerId = this.telegramUser.id.toString();
+                    await setDoc(doc(window.db, 'players', playerId), {
+                        playerId: playerId,
+                        playerName: `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim(),
+                        gameData: saveData,
+                        lastActive: new Date(),
+                        totalPlayTime: this.state.totalPlayTime || 0,
+                        level: this.state.playerLevel || 1,
+                        levelName: this.state.playerLevelName || 'Новичок'
+                    });
+                } catch (firebaseError) {
+                    console.error('Firebase save failed:', firebaseError);
+                }
+            }
 
             // Отправляем данные администратору для статистики
             this.sendDataToAdmin(saveData);
@@ -1979,8 +1998,50 @@ class Game {
         });
     }
 
-    loadGame() {
+    async loadGame() {
         try {
+            // Try to load from Firebase first
+            if (window.db && this.telegramUser) {
+                try {
+                    const playerId = this.telegramUser.id.toString();
+                    const docRef = doc(window.db, 'players', playerId);
+                    const docSnap = await getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const firebaseData = docSnap.data();
+                        const data = firebaseData.gameData;
+
+                        // Check data integrity if checksum exists
+                        if (data.checksum && data.state) {
+                            const calculatedChecksum = this.generateChecksum(data.state);
+                            if (calculatedChecksum !== data.checksum) {
+                                console.warn('Firebase data checksum mismatch - data may be corrupted');
+                                this.showTelegramNotification('Обнаружены проблемы с данными в облаке.');
+                            }
+                        }
+
+                        if (data.state) {
+                            // Deep clone to avoid reference issues
+                            this.state = JSON.parse(JSON.stringify(data.state));
+
+                            // Data migration and validation
+                            this.migrateSaveData();
+
+                            // Generate lands if none exist (first time)
+                            if (!this.state.lands || this.state.lands.length === 0) {
+                                this.generateLands();
+                            }
+
+                            console.log('Game loaded from Firebase, version:', data.version);
+                            return;
+                        }
+                    }
+                } catch (firebaseError) {
+                    console.error('Firebase load failed:', firebaseError);
+                }
+            }
+
+            // Fallback to localStorage
             const saved = localStorage.getItem('oilGame');
             if (saved) {
                 const data = JSON.parse(saved);
@@ -1989,9 +2050,9 @@ class Game {
                 if (data.checksum && data.state) {
                     const calculatedChecksum = this.generateChecksum(data.state);
                     if (calculatedChecksum !== data.checksum) {
-                        console.warn('Save data checksum mismatch - data may be corrupted');
+                        console.warn('Local save data checksum mismatch - data may be corrupted');
                         // Still try to load, but warn the user
-                        this.showTelegramNotification('Обнаружены проблемы с сохранением. Данные могут быть повреждены.');
+                        this.showTelegramNotification('Обнаружены проблемы с локальным сохранением. Данные могут быть повреждены.');
                     }
                 }
 
@@ -2007,7 +2068,7 @@ class Game {
                         this.generateLands();
                     }
 
-                    console.log('Game loaded successfully, version:', data.version);
+                    console.log('Game loaded from localStorage, version:', data.version);
                 }
             }
         } catch (e) {
