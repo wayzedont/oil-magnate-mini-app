@@ -44,6 +44,9 @@ class Game {
         // Запустить систему событий
         this.scheduleEvent();
 
+        // Запустить счетчик времени игры
+        this.startPlayTimeCounter();
+
         this.updateUI();
     }
 
@@ -888,19 +891,19 @@ class Game {
         setInterval(() => {
             this.updateRigs();
         }, CONFIG.ui.rigUpdateInterval);
-        
+
         setInterval(() => {
             this.saveGame();
         }, CONFIG.ui.saveInterval);
-        
+
         setInterval(() => {
             this.updateGenerationButton();
         }, 10000);
-        
+
         setInterval(() => {
             this.updateCompanyPrices();
         }, CONFIG.companies.priceChangeInterval);
-        
+
         setInterval(() => {
             this.updateCompanyRequirements();
         }, CONFIG.companies.requirementsChangeInterval);
@@ -912,6 +915,85 @@ class Game {
         setInterval(() => {
             this.updateOwnCompany();
         }, 1000);
+
+        // Новые игровые механики для вовлеченности
+        setInterval(() => {
+            this.showRandomTip();
+        }, 5 * 60 * 1000); // Каждые 5 минут
+
+        setInterval(() => {
+            this.checkAchievements();
+        }, 30000); // Каждые 30 секунд
+    }
+
+    startPlayTimeCounter() {
+        this.state.totalPlayTime = this.state.totalPlayTime || 0;
+        this.playTimeStart = Date.now();
+    }
+
+    showRandomTip() {
+        const tips = [
+            "💡 Совет: Чем дороже участок, тем выше шанс найти богатые запасы нефти!",
+            "💡 Совет: Улучшенная вышка дает больше нефти, но требует больше времени на установку!",
+            "💡 Совет: Следите за ценами компаний - они постоянно меняются!",
+            "💡 Совет: Бонусный круг появляется случайно - не упустите его!",
+            "💡 Совет: Премиум вышки дают максимальную добычу с минимальными потерями!",
+            "💡 Совет: Собственная компания позволяет производить нефтепродукты для дополнительного дохода!",
+            "💡 Совет: Регулярно проверяйте вкладку 'Продажа' для лучших цен!",
+            "💡 Совет: Уровень контракта с компаниями влияет на объем закупок!"
+        ];
+
+        const randomTip = tips[Math.floor(Math.random() * tips.length)];
+        this.showFloatingNotification(randomTip, 5000);
+    }
+
+    checkAchievements() {
+        const achievements = [
+            { id: 'first_click', condition: () => this.state.clickSkillLevel >= 2, reward: 100, text: '🎉 Первый клик! +100₽' },
+            { id: 'first_land', condition: () => this.state.lands.filter(l => l.owned).length >= 1, reward: 500, text: '🏜️ Первый участок! +500₽' },
+            { id: 'first_rig', condition: () => this.state.lands.some(l => l.rigs && l.rigs.length > 0), reward: 1000, text: '🏭 Первая вышка! +1000₽' },
+            { id: 'first_sale', condition: () => this.state.money >= 10000, reward: 2000, text: '💰 Первая продажа! +2000₽' },
+            { id: 'millionaire', condition: () => this.state.money >= 1000000, reward: 10000, text: '💎 Миллионер! +10000₽' },
+            { id: 'oil_tycoon', condition: () => this.state.availableOil >= 10000, reward: 5000, text: '🛢️ Нефтяной магнат! +5000₽' }
+        ];
+
+        achievements.forEach(achievement => {
+            if (achievement.condition() && !this.state.achievements?.includes(achievement.id)) {
+                this.state.achievements = this.state.achievements || [];
+                this.state.achievements.push(achievement.id);
+                this.state.money += achievement.reward;
+                this.showFloatingNotification(achievement.text, 8000);
+                this.updateUI();
+                this.saveGame();
+            }
+        });
+    }
+
+    showFloatingNotification(message, duration = 3000) {
+        const notification = document.createElement('div');
+        notification.className = 'floating-notification';
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent-gold);
+            color: var(--bg-dark);
+            padding: 15px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+            animation: slideDown 0.5s ease-out;
+        `;
+
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.animation = 'slideUp 0.5s ease-in forwards';
+            setTimeout(() => notification.remove(), 500);
+        }, duration);
     }
 
     updateRigs() {
@@ -975,21 +1057,52 @@ class Game {
         document.getElementById('money').textContent = this.formatNumber(Math.floor(this.state.money));
         document.getElementById('availableOil').textContent = this.formatNumber(Math.floor(this.state.availableOil));
         document.getElementById('clickPower').textContent = this.state.clickPower;
-        
+
         // Правильное отображение добычи нефти в секунду
         const extractionRate = this.calculateOilExtractionRate();
         document.getElementById('oilExtractionRate').textContent = extractionRate.toFixed(2);
-        
+
         document.getElementById('clickSkillLevel').textContent = this.state.clickSkillLevel;
         document.getElementById('clickSkillBonus').textContent = this.state.clickPower;
-        
+
         const clickCost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, this.state.clickSkillLevel - 1));
         document.getElementById('clickSkillCost').textContent = this.formatNumber(clickCost);
         document.getElementById('upgradeClickSkill').disabled = this.state.money < clickCost;
-        
+
         const sellOilElement = document.getElementById('sellAvailableOil');
         if (sellOilElement) {
             sellOilElement.textContent = `${this.formatNumber(Math.floor(this.state.availableOil))} баррелей`;
+        }
+
+        // Обновляем отображение уровня игрока для админ панели
+        this.updatePlayerLevel();
+
+        // Показываем уровень игрока в профиле
+        this.updateProfileLevel();
+    }
+
+    updateProfileLevel() {
+        const profileModal = document.getElementById('profileModal');
+        if (!profileModal) return;
+
+        // Добавляем отображение уровня в профиль
+        let levelElement = document.getElementById('playerLevelDisplay');
+        if (!levelElement) {
+            const profileStats = document.querySelector('.profile-stats');
+            if (profileStats) {
+                const levelCard = document.createElement('div');
+                levelCard.className = 'stat-card';
+                levelCard.innerHTML = `
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-info">
+                        <p class="stat-label">Уровень</p>
+                        <p class="stat-value" id="playerLevelDisplay">${this.state.playerLevel} - ${this.state.playerLevelName}</p>
+                    </div>
+                `;
+                profileStats.appendChild(levelCard);
+            }
+        } else {
+            levelElement.textContent = `${this.state.playerLevel} - ${this.state.playerLevelName}`;
         }
     }
 
@@ -1011,8 +1124,33 @@ class Game {
 
         try {
             localStorage.setItem('oilGame', JSON.stringify(saveData));
+
+            // Отправляем данные администратору для статистики
+            this.sendDataToAdmin(saveData);
         } catch (e) {
             console.error('Failed to save game:', e);
+        }
+    }
+
+    sendDataToAdmin(saveData) {
+        // Имитируем отправку данных для админ статистики
+        // В реальной игре здесь будет отправка на сервер
+        try {
+            // Сохраняем в специальном ключе для админа
+            const adminKey = 'admin_player_data_' + (this.telegramUser ? this.telegramUser.id : 'guest');
+            localStorage.setItem(adminKey, JSON.stringify({
+                playerId: this.telegramUser ? this.telegramUser.id : 'guest',
+                playerName: this.telegramUser ? `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim() : 'Гость',
+                money: saveData.state.money,
+                oil: saveData.state.availableOil,
+                lands: saveData.state.lands.filter(l => l.owned).length,
+                level: saveData.state.playerLevel || 1,
+                levelName: saveData.state.playerLevelName || 'Новичок',
+                lastActive: saveData.savedAt,
+                totalPlayTime: saveData.state.totalPlayTime || 0
+            }));
+        } catch (e) {
+            console.error('Failed to send admin data:', e);
         }
     }
 
@@ -1326,6 +1464,50 @@ class Game {
         document.getElementById('autoBuyEnabled').checked = company.autoBuyEnabled;
         buybackPriceElement.textContent = `Текущая цена: ${this.formatNumber(Math.floor(company.currentBuybackPrice))}₽`;
         document.getElementById('buybackMoneyAmount').placeholder = `Доступно: ${this.formatNumber(company.buybackMoney)}₽`;
+    }
+
+    updatePlayerLevel() {
+        // Система уровней для дополнительной мотивации
+        const totalMoney = this.state.money;
+        const totalOil = this.state.availableOil;
+        const landsOwned = this.state.lands.filter(l => l.owned).length;
+        const score = totalMoney + (totalOil * 10) + (landsOwned * 1000);
+
+        let level = 1;
+        let levelName = 'Новичок';
+
+        if (score >= 1000000) {
+            level = 10;
+            levelName = 'Нефтяной магнат';
+        } else if (score >= 500000) {
+            level = 9;
+            levelName = 'Олигарх';
+        } else if (score >= 250000) {
+            level = 8;
+            levelName = 'Миллионер';
+        } else if (score >= 100000) {
+            level = 7;
+            levelName = 'Бизнесмен';
+        } else if (score >= 50000) {
+            level = 6;
+            levelName = 'Предприниматель';
+        } else if (score >= 25000) {
+            level = 5;
+            levelName = 'Инвестор';
+        } else if (score >= 10000) {
+            level = 4;
+            levelName = 'Трейдер';
+        } else if (score >= 5000) {
+            level = 3;
+            levelName = 'Работник';
+        } else if (score >= 1000) {
+            level = 2;
+            levelName = 'Стажер';
+        }
+
+        // Сохраняем уровень для админ панели
+        this.state.playerLevel = level;
+        this.state.playerLevelName = levelName;
     }
 
     calculateAverageOilPrice() {
@@ -1655,9 +1837,30 @@ class Game {
                     if (this.state.rigSlots === undefined) {
                         this.state.rigSlots = CONFIG.initial.rigSlots || 2;
                     }
-
+            
                     if (this.state.purchasedSlots === undefined) {
                         this.state.purchasedSlots = 0;
+                    }
+            
+                    // Добавляем новые поля для достижений и системы уровней
+                    if (this.state.achievements === undefined) {
+                        this.state.achievements = [];
+                    }
+            
+                    if (this.state.totalPlayTime === undefined) {
+                        this.state.totalPlayTime = 0;
+                    }
+            
+                    if (this.state.playerLevel === undefined) {
+                        this.state.playerLevel = 1;
+                        this.state.playerLevelName = 'Новичок';
+                    }
+            
+                    // Обновляем общее время игры
+                    if (this.playTimeStart) {
+                        const sessionTime = Date.now() - this.playTimeStart;
+                        this.state.totalPlayTime += sessionTime;
+                        this.playTimeStart = Date.now(); // Сбрасываем для следующей сессии
                     }
 
                     // Преобразуем старые rig в rigs массив

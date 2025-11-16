@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ панель - Нефтяной магнат</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .admin-panel {
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .admin-section {
+            background: var(--bg-card);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .admin-section h3 {
+            color: var(--accent-gold);
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .admin-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .admin-btn {
+            padding: 12px 24px;
+            background: var(--accent-gold);
+            color: var(--bg-dark);
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .admin-btn:hover {
+            transform: scale(1.02);
+        }
+
+        .admin-btn.danger {
+            background: var(--danger);
+        }
+
+        .admin-btn:disabled {
+            background: var(--text-gray);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .players-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .player-item {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .player-item:last-child {
+            border-bottom: none;
+        }
+
+        .player-info {
+            flex: 1;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: var(--accent-gold);
+            margin-bottom: 5px;
+        }
+
+        .player-stats {
+            font-size: 12px;
+            color: var(--text-gray);
+        }
+
+        .player-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .player-action-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .player-action-btn.reset {
+            background: var(--danger);
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: var(--bg-darker);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--accent-gold);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--text-gray);
+        }
+
+        .refresh-btn {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: var(--bg-darker);
+            border: 2px solid var(--accent-gold);
+            color: var(--accent-gold);
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: var(--accent-gold);
+            color: var(--bg-dark);
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="admin-panel">
+            <h2 style="text-align: center; color: var(--accent-gold); margin-bottom: 30px;">Админ панель</h2>
+
+            <div class="admin-section">
+                <h3>📊 Статистика игры</h3>
+                <div class="stats-grid" id="statsGrid">
+                    <!-- Будет заполнено JavaScript -->
+                </div>
+                <button class="refresh-btn" onclick="loadStats()">🔄 Обновить статистику</button>
+            </div>
+
+            <div class="admin-section">
+                <h3>👥 Управление игроками</h3>
+                <div class="admin-actions">
+                    <button class="admin-btn" onclick="loadPlayers()">📋 Загрузить список игроков</button>
+                    <button class="admin-btn danger" onclick="resetAllPlayers()">🚨 Сбросить ВСЕХ игроков</button>
+                    <button class="admin-btn" onclick="exportPlayersData()">💾 Экспорт данных игроков</button>
+                </div>
+
+                <div class="players-list" id="playersList">
+                    <!-- Будет заполнено JavaScript -->
+                </div>
+            </div>
+
+            <div class="admin-section">
+                <h3>⚙️ Конфигурация игры</h3>
+                <div class="admin-actions">
+                    <button class="admin-btn" onclick="editConfig()">✏️ Редактировать настройки</button>
+                    <button class="admin-btn" onclick="viewLogs()">📝 Просмотр логов</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        class AdminPanel {
+            constructor() {
+                this.players = [];
+                this.stats = {};
+                this.init();
+            }
+
+            init() {
+                if (window.Telegram && window.Telegram.WebApp) {
+                    const tg = window.Telegram.WebApp;
+                    tg.ready();
+                    tg.expand();
+
+                    // Проверка прав администратора
+                    this.checkAdminAccess(tg.initDataUnsafe?.user);
+                }
+
+                this.loadStats();
+            }
+
+            checkAdminAccess(user) {
+                    if (!user) {
+                        alert('Ошибка: Не удалось получить данные пользователя Telegram');
+                        return;
+                    }
+    
+                    // Здесь должна быть проверка на администратора
+                    // Для демонстрации используем ID пользователя
+                    const adminIds = [123456789, 987654321, 12345678]; // Замените на реальные ID администраторов
+    
+                    if (!adminIds.includes(user.id)) {
+                        alert('У вас нет прав доступа к админ панели');
+                        window.close();
+                        return;
+                    }
+    
+                    console.log('Админ доступ подтвержден для:', user.first_name);
+                }
+
+            loadStats() {
+                // Загружаем статистику из localStorage всех игроков
+                this.stats = {
+                    totalPlayers: 0,
+                    activePlayers: 0,
+                    totalMoney: 0,
+                    totalOil: 0,
+                    totalLands: 0,
+                    averageMoney: 0
+                };
+
+                // Сначала загружаем игроков, затем обновляем статистику
+                this.loadPlayers();
+            }
+
+            updateStats() {
+                if (this.players.length === 0) {
+                    this.stats = {
+                        totalPlayers: 0,
+                        activePlayers: 0,
+                        totalMoney: 0,
+                        totalOil: 0,
+                        totalLands: 0,
+                        averageMoney: 0
+                    };
+                } else {
+                    const now = Date.now();
+                    const oneDayAgo = now - 86400000; // 24 часа
+
+                    this.stats.totalPlayers = this.players.length;
+                    this.stats.activePlayers = this.players.filter(p => p.lastOnline > oneDayAgo).length;
+                    this.stats.totalMoney = this.players.reduce((sum, p) => sum + (p.money || 0), 0);
+                    this.stats.totalOil = this.players.reduce((sum, p) => sum + (p.oil || 0), 0);
+                    this.stats.totalLands = this.players.reduce((sum, p) => sum + (p.lands || 0), 0);
+                    this.stats.averageMoney = Math.floor(this.stats.totalMoney / this.stats.totalPlayers);
+                }
+
+                this.displayStats();
+            }
+
+            displayStats() {
+                const statsGrid = document.getElementById('statsGrid');
+                statsGrid.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-value">${this.stats.totalPlayers}</div>
+                        <div class="stat-label">Всего игроков</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.stats.activePlayers}</div>
+                        <div class="stat-label">Активных игроков</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.formatNumber(this.stats.totalMoney)}₽</div>
+                        <div class="stat-label">Общие деньги</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.formatNumber(this.stats.totalOil)}</div>
+                        <div class="stat-label">Общая нефть</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.stats.totalLands}</div>
+                        <div class="stat-label">Всего участков</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${this.formatNumber(this.stats.averageMoney)}₽</div>
+                        <div class="stat-label">Средние деньги</div>
+                    </div>
+                `;
+            }
+
+            loadPlayers() {
+                // Загружаем реальные данные игроков из localStorage
+                this.players = [];
+
+                // Проходим по всем ключам localStorage
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('admin_player_data_')) {
+                        try {
+                            const playerData = JSON.parse(localStorage.getItem(key));
+                            if (playerData && playerData.playerId) {
+                                this.players.push({
+                                    id: playerData.playerId,
+                                    name: playerData.playerName,
+                                    money: playerData.money || 0,
+                                    oil: playerData.oil || 0,
+                                    lands: playerData.lands || 0,
+                                    level: playerData.level || 1,
+                                    levelName: playerData.levelName || 'Новичок',
+                                    lastOnline: playerData.lastActive || Date.now()
+                                });
+                            }
+                        } catch (e) {
+                            console.error('Ошибка при загрузке данных игрока:', e);
+                        }
+                    }
+                }
+
+                // Сортируем по последней активности (свежие сверху)
+                this.players.sort((a, b) => b.lastOnline - a.lastOnline);
+
+                this.displayPlayers();
+                this.updateStats();
+            }
+
+            displayPlayers() {
+                const playersList = document.getElementById('playersList');
+                playersList.innerHTML = '';
+
+                if (this.players.length === 0) {
+                    playersList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-gray);">Нет данных об игроках</div>';
+                    return;
+                }
+
+                this.players.forEach(player => {
+                    const playerElement = document.createElement('div');
+                    playerElement.className = 'player-item';
+                    playerElement.innerHTML = `
+                        <div class="player-info">
+                            <div class="player-name">${player.name} (${player.levelName})</div>
+                            <div class="player-stats">
+                                Деньги: ${this.formatNumber(player.money)}₽ |
+                                Нефть: ${this.formatNumber(player.oil)} |
+                                Участки: ${player.lands} |
+                                Уровень: ${player.level} |
+                                Последний онлайн: ${this.formatDate(player.lastOnline)}
+                            </div>
+                        </div>
+                        <div class="player-actions">
+                            <button class="player-action-btn reset" onclick="adminPanel.resetPlayer('${player.id}')">
+                                Сбросить
+                            </button>
+                        </div>
+                    `;
+                    playersList.appendChild(playerElement);
+                });
+            }
+
+            resetPlayer(playerId) {
+                if (confirm(`Вы уверены, что хотите сбросить прогресс игрока ${playerId}?`)) {
+                    // Сбрасываем данные игрока
+                    const gameKey = 'oilGame';
+                    const adminKey = 'admin_player_data_' + playerId;
+
+                    localStorage.removeItem(gameKey);
+                    localStorage.removeItem(adminKey);
+
+                    alert(`Прогресс игрока сброшен`);
+                    this.loadPlayers(); // Перезагрузить список
+                }
+            }
+
+            resetAllPlayers() {
+                if (confirm('Вы уверены, что хотите сбросить ВСЕХ игроков? Это действие нельзя отменить!')) {
+                    // Имитируем полный сброс
+                    localStorage.clear();
+                    alert('Все игроки сброшены');
+                    this.loadStats();
+                    this.loadPlayers();
+                }
+            }
+
+            exportPlayersData() {
+                // Имитируем экспорт данных
+                const data = {
+                    players: this.players,
+                    stats: this.stats,
+                    exportedAt: new Date().toISOString()
+                };
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `players_data_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            editConfig() {
+                alert('Функция редактирования конфигурации будет реализована позже');
+            }
+
+            viewLogs() {
+                alert('Функция просмотра логов будет реализована позже');
+            }
+
+            formatNumber(num) {
+                if (num >= 1000000) {
+                    return (num / 1000000).toFixed(1) + 'M';
+                } else if (num >= 1000) {
+                    return (num / 1000).toFixed(1) + 'K';
+                }
+                return Math.floor(num).toString();
+            }
+
+            formatDate(timestamp) {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diff = now - date;
+
+                if (diff < 60000) return 'только что';
+                if (diff < 3600000) return `${Math.floor(diff / 60000)} мин назад`;
+                if (diff < 86400000) return `${Math.floor(diff / 3600000)} ч назад`;
+
+                return date.toLocaleDateString();
+            }
+        }
+
+        // Инициализация админ панели
+        let adminPanel;
+        document.addEventListener('DOMContentLoaded', () => {
+            adminPanel = new AdminPanel();
+        });
+
+        // Глобальные функции для onclick
+        function loadStats() {
+            adminPanel.loadStats();
+        }
+
+        function loadPlayers() {
+            adminPanel.loadPlayers();
+        }
+
+        function resetAllPlayers() {
+            adminPanel.resetAllPlayers();
+        }
+
+        function exportPlayersData() {
+            adminPanel.exportPlayersData();
+        }
+
+        function editConfig() {
+            adminPanel.editConfig();
+        }
+
+        function viewLogs() {
+            adminPanel.viewLogs();
+        }
+    </script>
+</body>
+</html>

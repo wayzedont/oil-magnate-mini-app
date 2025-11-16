@@ -14,15 +14,15 @@ const CONFIG = {
 
     skills: {
         clickPower: {
-            baseCost: 150, // Увеличено для баланса
-            costMultiplier: 2.0,
+            baseCost: 100, // Немного уменьшено для лучшей вовлеченности
+            costMultiplier: 1.8, // Уменьшен для более плавного прогресса
             powerMultiplier: 1.5
         }
     },
 
     bonusCircle: {
-        minInterval: 10000,
-        maxInterval: 60000,
+        minInterval: 8000, // Уменьшен для большей частоты
+        maxInterval: 45000, // Уменьшен для большей частоты
         duration: 5000,
         multiplier: 2
     },
@@ -236,37 +236,37 @@ const CONFIG = {
     },
 
     ownCompany: {
-        creationCost: 50000,
+        creationCost: 25000, // Уменьшено для лучшей доступности
         products: [
             {
                 id: 'motor_oil',
                 name: 'Моторное масло',
-                basePrice: 50,
-                oilRequired: 10,
-                moneyRequired: 20,
-                productionTime: 60 * 1000 // 1 minute
+                basePrice: 45, // Немного уменьшено
+                oilRequired: 8, // Уменьшено
+                moneyRequired: 15, // Уменьшено
+                productionTime: 45 * 1000 // 45 seconds - быстрее
             },
             {
                 id: 'gasoline',
                 name: 'Бензин',
-                basePrice: 80,
-                oilRequired: 15,
-                moneyRequired: 30,
-                productionTime: 90 * 1000 // 1.5 minutes
+                basePrice: 75, // Немного уменьшено
+                oilRequired: 12, // Уменьшено
+                moneyRequired: 25, // Уменьшено
+                productionTime: 60 * 1000 // 1 minute - быстрее
             },
             {
                 id: 'diesel',
                 name: 'Дизельное топливо',
-                basePrice: 70,
-                oilRequired: 12,
-                moneyRequired: 25,
-                productionTime: 75 * 1000 // 1.25 minutes
+                basePrice: 65, // Немного уменьшено
+                oilRequired: 10, // Уменьшено
+                moneyRequired: 20, // Уменьшено
+                productionTime: 50 * 1000 // 50 seconds - быстрее
             }
         ],
         buyback: {
-            minPrice: 5, // Minimum price to buy back oil
-            maxPrice: 15, // Maximum price to buy back oil
-            baseVolume: 100 // Base volume per interval
+            minPrice: 6, // Немного увеличено для баланса
+            maxPrice: 18, // Увеличено
+            baseVolume: 150 // Увеличено для большей активности
         }
     }
 };

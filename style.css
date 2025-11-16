@@ -33,6 +33,7 @@ body {
     max-width: 600px;
     margin: 0 auto;
     padding-bottom: 20px;
+    overflow-x: hidden;
 }
 
 /* Header */
@@ -102,24 +103,29 @@ body {
     display: flex;
     background: var(--bg-card);
     margin-top: 2px;
-    padding: 5px;
-    gap: 5px;
+    padding: 8px;
+    gap: 8px;
     position: sticky;
     top: 60px;
     z-index: 90;
+    overflow-x: hidden;
+    justify-content: space-around;
 }
 
 .nav-tab {
     flex: 1;
-    padding: 12px;
+    padding: 15px 8px;
     background: transparent;
     border: none;
     color: var(--text-gray);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     border-radius: 8px;
     transition: all 0.3s;
+    white-space: nowrap;
+    text-align: center;
+    min-width: 0;
 }
 
 .nav-tab.active {
@@ -132,6 +138,7 @@ body {
     display: none;
     padding: 20px;
     animation: fadeIn 0.3s;
+    overflow-x: hidden;
 }
 
 .tab-content.active {
@@ -148,6 +155,7 @@ body {
     text-align: center;
     position: relative;
     min-height: 600px;
+    overflow-x: hidden;
 }
 
 .click-stats {
@@ -383,6 +391,33 @@ body {
     }
 }
 
+@keyframes slideDown {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+@keyframes slideUp {
+    0% {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+}
+
+.floating-notification {
+    font-size: 16px;
+    white-space: nowrap;
+}
+
 /* Sell Screen */
 .sell-screen h2 {
     margin-bottom: 20px;
@@ -398,23 +433,27 @@ body {
     justify-content: space-between;
     align-items: center;
     border: 2px solid var(--border);
+    overflow-x: hidden;
 }
 
 .available-oil-banner span:first-child {
     font-size: 16px;
     color: var(--text-gray);
+    flex: 1;
 }
 
 .oil-amount {
     font-size: 20px;
     font-weight: bold;
     color: var(--accent-gold);
+    min-width: 0;
 }
 
 .companies-list {
     display: flex;
     flex-direction: column;
     gap: 15px;
+    overflow-x: hidden;
 }
 
 .company-card {
@@ -425,6 +464,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    overflow-x: hidden;
 }
 
 .company-header {
@@ -449,6 +489,7 @@ body {
     padding: 10px;
     background: var(--bg-darker);
     border-radius: 8px;
+    overflow-x: hidden;
 }
 
 .company-info-row {
@@ -473,6 +514,7 @@ body {
     display: flex;
     gap: 10px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .sell-input {
@@ -971,6 +1013,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-x: hidden;
 }
 
 .product-header {
@@ -1012,6 +1055,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-x: hidden;
 }
 
 .buyback-controls label {
@@ -1066,6 +1110,7 @@ body {
     overflow-y: auto;
     position: relative;
     border: 2px solid var(--border);
+    overflow-x: hidden;
 }
 
 .modal-close {
@@ -1288,29 +1333,66 @@ body {
     .header {
         padding: 12px 15px;
     }
-    
+
     .money-icon, .oil-icon {
         font-size: 20px;
     }
-    
-    #money, #totalOil {
+
+    #money, #availableOil {
         font-size: 18px;
     }
-    
+
     .work-button {
         width: 180px;
         height: 180px;
     }
-    
+
     .work-icon {
         font-size: 50px;
     }
-    
+
     .work-text {
         font-size: 18px;
     }
-    
+
     .lands-grid {
         grid-template-columns: 1fr;
+    }
+
+    .nav-tabs {
+        padding: 10px 5px;
+        gap: 3px;
+    }
+
+    .nav-tab {
+        font-size: 12px;
+        padding: 12px 4px;
+    }
+
+    .company-card {
+        padding: 12px;
+    }
+
+    .company-info {
+        padding: 8px;
+    }
+
+    .company-sell-section {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .sell-input {
+        width: 100%;
+    }
+
+    .btn-sell-max {
+        width: 100%;
+        padding: 10px;
+    }
+
+    .btn-sell {
+        width: 100%;
+        padding: 12px;
     }
 }
