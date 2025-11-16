@@ -881,11 +881,50 @@ class Game {
     }
 
     resetProgress() {
-        if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
-            localStorage.removeItem('oilGame');
-            location.reload();
-        }
-    }
+       if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
+           localStorage.removeItem('oilGame');
+           location.reload();
+       }
+   }
+
+   resetAllPlayers() {
+       if (confirm('Вы уверены, что хотите сбросить прогресс ВСЕХ игроков? Это действие нельзя отменить!')) {
+           // Clear all player saves from localStorage
+           for (let i = localStorage.length - 1; i >= 0; i--) {
+               const key = localStorage.key(i);
+               if (key && (key.startsWith('oilGame') || key.startsWith('admin_player_data_'))) {
+                   localStorage.removeItem(key);
+               }
+           }
+           alert('Прогресс всех игроков сброшен!');
+           location.reload();
+       }
+   }
+
+   resetPlayer(playerId) {
+       if (confirm(`Вы уверены, что хотите сбросить прогресс игрока ${playerId}?`)) {
+           // For localStorage-based saves, we need to handle it differently
+           // Since data is stored as JSON, we'll need to implement proper player reset
+           const playerKey = 'admin_player_data_' + playerId;
+           localStorage.removeItem(playerKey);
+
+           // Also remove from main game if it's the current player
+           const saved = localStorage.getItem('oilGame');
+           if (saved) {
+               const data = JSON.parse(saved);
+               // For guest or current player, clear their save
+               if ((playerId === 'guest' && !this.telegramUser) ||
+                   (this.telegramUser && this.telegramUser.id.toString() === playerId)) {
+                   localStorage.removeItem('oilGame');
+                   if (confirm('Это ваш аккаунт. Перезагрузить страницу?')) {
+                       location.reload();
+                   }
+               }
+           }
+
+           alert(`Прогресс игрока ${playerId} сброшен!`);
+       }
+   }
 
     startGameLoop() {
         setInterval(() => {
@@ -1118,18 +1157,37 @@ class Game {
     saveGame() {
         const saveData = {
             state: this.state,
-            version: '1.0',
-            savedAt: Date.now()
+            version: '1.1', // Updated version for better tracking
+            savedAt: Date.now(),
+            checksum: this.generateChecksum(this.state) // Add checksum for data integrity
         };
 
         try {
+            // Test if localStorage is available and working
+            localStorage.setItem('oilGame_test', 'test');
+            localStorage.removeItem('oilGame_test');
+
             localStorage.setItem('oilGame', JSON.stringify(saveData));
 
             // Отправляем данные администратору для статистики
             this.sendDataToAdmin(saveData);
         } catch (e) {
             console.error('Failed to save game:', e);
+            // Could implement fallback save mechanism here
+            this.showTelegramNotification('Ошибка сохранения! Данные могут быть потеряны.');
         }
+    }
+
+    generateChecksum(state) {
+        // Simple checksum for data integrity
+        const str = JSON.stringify(state);
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return hash.toString();
     }
 
     sendDataToAdmin(saveData) {
@@ -1163,8 +1221,33 @@ class Game {
             const efficiency = CONFIG.offlineProgress.efficiency;
             const effectiveTime = cappedOfflineTime * efficiency;
 
-            const extractionRate = this.calculateOilExtractionRate();
-            const offlineOil = Math.floor((extractionRate * effectiveTime) / 1000); // Convert to seconds
+            let totalOfflineOil = 0;
+
+            // Calculate offline extraction per land and deduct from reserves
+            this.state.lands.forEach(land => {
+                if (land.rigs && land.rigs.length > 0 && land.currentOil > 0) {
+                    let landExtracted = 0;
+
+                    land.rigs.forEach(rig => {
+                        const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                        const extractedPerSecond = rigConfig.extractionRate;
+                        const extracted = Math.min(extractedPerSecond * (effectiveTime / 1000), land.currentOil);
+                        const lost = extracted * (rigConfig.lossPercentage / 100);
+                        const effective = extracted - lost;
+
+                        landExtracted += extracted;
+                        totalOfflineOil += effective;
+                    });
+
+                    // Deduct from land reserves
+                    land.currentOil -= landExtracted;
+                    if (land.currentOil <= 0) {
+                        land.currentOil = 0;
+                    }
+                }
+            });
+
+            const offlineOil = Math.floor(totalOfflineOil);
 
             if (offlineOil > 0) {
                 this.state.availableOil += offlineOil;
@@ -1810,105 +1893,129 @@ class Game {
             if (saved) {
                 const data = JSON.parse(saved);
 
+                // Check data integrity if checksum exists
+                if (data.checksum && data.state) {
+                    const calculatedChecksum = this.generateChecksum(data.state);
+                    if (calculatedChecksum !== data.checksum) {
+                        console.warn('Save data checksum mismatch - data may be corrupted');
+                        // Still try to load, but warn the user
+                        this.showTelegramNotification('Обнаружены проблемы с сохранением. Данные могут быть повреждены.');
+                    }
+                }
+
                 if (data.state) {
-                    this.state = data.state;
+                    // Deep clone to avoid reference issues
+                    this.state = JSON.parse(JSON.stringify(data.state));
 
-                    if (!this.state.generationHistory) {
-                        this.state.generationHistory = [];
-                    }
+                    // Data migration and validation
+                    this.migrateSaveData();
 
-                    if (!this.state.companies) {
-                        this.state.companies = [];
-                    }
-
-                    if (!this.state.availableOil) {
-                        this.state.availableOil = 0;
+                    // Generate lands if none exist (first time)
+                    if (!this.state.lands || this.state.lands.length === 0) {
+                        this.generateLands();
                     }
 
-                    if (!this.state.analyzedLands) {
-                        this.state.analyzedLands = [];
-                    }
-
-                    if (!this.state.companyContracts) {
-                        this.state.companyContracts = {};
-                    }
-
-                    // Добавляем новые поля для слотов, если их нет
-                    if (this.state.rigSlots === undefined) {
-                        this.state.rigSlots = CONFIG.initial.rigSlots || 2;
-                    }
-            
-                    if (this.state.purchasedSlots === undefined) {
-                        this.state.purchasedSlots = 0;
-                    }
-            
-                    // Добавляем новые поля для достижений и системы уровней
-                    if (this.state.achievements === undefined) {
-                        this.state.achievements = [];
-                    }
-            
-                    if (this.state.totalPlayTime === undefined) {
-                        this.state.totalPlayTime = 0;
-                    }
-            
-                    if (this.state.playerLevel === undefined) {
-                        this.state.playerLevel = 1;
-                        this.state.playerLevelName = 'Новичок';
-                    }
-            
-                    // Обновляем общее время игры
-                    if (this.playTimeStart) {
-                        const sessionTime = Date.now() - this.playTimeStart;
-                        this.state.totalPlayTime += sessionTime;
-                        this.playTimeStart = Date.now(); // Сбрасываем для следующей сессии
-                    }
-
-                    // Преобразуем старые rig в rigs массив
-                    if (this.state.lands) {
-                        this.state.lands.forEach(land => {
-                            if (land.rig && !land.rigs) {
-                                land.rigs = [land.rig];
-                                delete land.rig;
-                            } else if (!land.rigs) {
-                                land.rigs = [];
-                            }
-                        });
-                    }
-
-                    // Ensure companies have new fields
-                                if (this.state.companies.length > 0 && !this.state.companies[0].currentMinBuy) {
-                                    this.state.companies = [];
-                                    this.initCompanies();
-                                }
-            
-                                // Initialize new fields
-                                if (this.state.lastOnlineTime === undefined) {
-                                    this.state.lastOnlineTime = Date.now();
-                                }
-                                if (this.state.offlineProgress === undefined) {
-                                    this.state.offlineProgress = 0;
-                                }
-                                if (this.state.ownCompany === undefined) {
-                                    this.state.ownCompany = null;
-                                }
-                                if (this.state.events === undefined) {
-                                    this.state.events = [];
-                                }
-                                if (this.state.priceMultiplier === undefined) {
-                                    this.state.priceMultiplier = 1.0;
-                                }
-                                if (this.state.priceMultiplierEndTime === undefined) {
-                                    this.state.priceMultiplierEndTime = 0;
-                                }
-            
-                                if (!this.state.lands || this.state.lands.length === 0) {
-                                    this.generateLands();
-                                }
+                    console.log('Game loaded successfully, version:', data.version);
                 }
             }
         } catch (e) {
             console.error('Failed to load game:', e);
+            // Initialize with default state if loading fails
+            this.state = this.getDefaultState();
+            this.generateLands();
+            this.initCompanies();
+            this.showTelegramNotification('Ошибка загрузки сохранения. Игра начата заново.');
         }
+    }
+
+    migrateSaveData() {
+        // Migration logic for different versions
+        const migrations = {
+            // Version 1.0 to 1.1 migrations
+            '1.0': (state) => {
+                // Add checksum support
+                if (!state.checksum) {
+                    state.checksum = this.generateChecksum(state);
+                }
+                return state;
+            }
+        };
+
+        // Apply migrations if needed
+        // Note: version tracking would be better implemented with a version field
+
+        // Ensure all required fields exist with defaults
+        const defaults = this.getDefaultState();
+
+        // Recursive function to ensure all nested properties exist
+        const ensureDefaults = (target, source) => {
+            for (const key in source) {
+                if (!(key in target)) {
+                    target[key] = JSON.parse(JSON.stringify(source[key]));
+                } else if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
+                    ensureDefaults(target[key], source[key]);
+                }
+            }
+        };
+
+        ensureDefaults(this.state, defaults);
+
+        // Specific migrations for known issues
+        if (this.state.lands) {
+            this.state.lands.forEach(land => {
+                // Convert old rig format to rigs array
+                if (land.rig && !land.rigs) {
+                    land.rigs = [land.rig];
+                    delete land.rig;
+                } else if (!land.rigs) {
+                    land.rigs = [];
+                }
+
+                // Ensure rig data integrity
+                if (land.rigs) {
+                    land.rigs = land.rigs.filter(rig => rig && rig.type); // Remove invalid rigs
+                }
+            });
+        }
+
+        // Update play time tracking
+        if (this.playTimeStart) {
+            const sessionTime = Date.now() - this.playTimeStart;
+            this.state.totalPlayTime = (this.state.totalPlayTime || 0) + sessionTime;
+            this.playTimeStart = Date.now();
+        }
+
+        // Reinitialize companies if corrupted
+        if (!this.state.companies || this.state.companies.length === 0 || !this.state.companies[0].currentMinBuy) {
+            this.state.companies = [];
+            this.initCompanies();
+        }
+    }
+
+    getDefaultState() {
+        return {
+            money: CONFIG.initial.money,
+            clickPower: CONFIG.initial.clickPower,
+            clickSkillLevel: CONFIG.initial.clickSkillLevel,
+            lands: [],
+            availableOil: 0,
+            generationHistory: [],
+            companies: [],
+            analyzedLands: [],
+            rigSlots: CONFIG.initial.rigSlots || 2,
+            purchasedSlots: 0,
+            companyContracts: {},
+            lastOnlineTime: Date.now(),
+            offlineProgress: 0,
+            ownCompany: null,
+            events: [],
+            priceMultiplier: 1.0,
+            priceMultiplierEndTime: 0,
+            achievements: [],
+            totalPlayTime: 0,
+            playerLevel: 1,
+            playerLevelName: 'Новичок'
+        };
     }
 
     applyTheme(themeParams) {

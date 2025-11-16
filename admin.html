@@ -14,7 +14,7 @@
 
         .admin-panel {
             padding: 20px;
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
@@ -255,18 +255,7 @@
                 <div id="accessStatus" class="demo-mode">🎮 Демо режим (без Telegram)</div>
             </div>
 
-            <div class="bot-instructions">
-                <h4>🚀 Как создать бота для админ панели:</h4>
-                <ol>
-                    <li>Перейдите к <a href="https://t.me/BotFather" target="_blank" class="bot-link">@BotFather</a> в Telegram</li>
-                    <li>Отправьте команду <code>/newbot</code> и следуйте инструкциям</li>
-                    <li>Получите токен бота (сохраните его!)</li>
-                    <li>Отправьте команду <code>/setmenubutton</code> вашему боту</li>
-                    <li>Установите URL: <code>https://wayzedont.github.io/oil-magnate-mini-app/admin.html</code></li>
-                    <li>Отправьте боту команду <code>/menu</code> чтобы активировать кнопку</li>
-                </ol>
-                <p><strong>Теперь админ панель будет доступна через кнопку "Menu" в вашем боте!</strong></p>
-            </div>
+            <div id="demoContent" style="display: block;">
 
             <div id="demoContent">
                 <!-- Контент демо режима -->
@@ -296,6 +285,23 @@
                         <div class="stat-card">
                             <div class="stat-value">0₽</div>
                             <div class="stat-label">Средние деньги</div>
+                        </div>
+                    </div>
+                    <button class="refresh-btn" onclick="loadDemoStats()">🔄 Обновить статистику</button>
+                </div>
+
+                <div class="admin-section">
+                    <h3>👥 База данных игроков</h3>
+                    <div class="admin-actions">
+                        <button class="admin-btn" onclick="loadRealPlayers()">📋 Загрузить реальных игроков</button>
+                        <button class="admin-btn danger" onclick="resetAllPlayers()">🚨 Сбросить ВСЕХ игроков</button>
+                        <button class="admin-btn" onclick="exportPlayersData()">💾 Экспорт данных</button>
+                        <button class="refresh-btn" onclick="loadRealPlayers()">🔄 Обновить</button>
+                    </div>
+
+                    <div class="players-list" id="playersList">
+                        <div style="text-align: center; padding: 20px; color: var(--text-gray);">
+                            Нажмите "Загрузить реальных игроков" для просмотра базы данных
                         </div>
                     </div>
                 </div>
@@ -366,58 +372,58 @@
                         this.displayStats();
                     }
         
-                    loadDemoPlayers() {
-                        // Создаем демо игроков
-                        this.players = [
-                            {
-                                id: 'demo_1',
-                                name: 'Игрок 1',
-                                money: 50000,
-                                oil: 1000,
-                                lands: 5,
-                                level: 5,
-                                levelName: 'Инвестор',
-                                lastOnline: Date.now()
-                            },
-                            {
-                                id: 'demo_2',
-                                name: 'Игрок 2',
-                                money: 25000,
-                                oil: 500,
-                                lands: 3,
-                                level: 3,
-                                levelName: 'Работник',
-                                lastOnline: Date.now() - 86400000
-                            },
-                            {
-                                id: 'demo_3',
-                                name: 'Игрок 3',
-                                money: 75000,
-                                oil: 1500,
-                                lands: 8,
-                                level: 7,
-                                levelName: 'Бизнесмен',
-                                lastOnline: Date.now() - 3600000
+                    loadRealPlayers() {
+                        // Load real players from localStorage
+                        this.players = [];
+                        const now = Date.now();
+
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && key.startsWith('admin_player_data_')) {
+                                try {
+                                    const playerData = JSON.parse(localStorage.getItem(key));
+                                    const lastActive = new Date(playerData.lastActive);
+                                    const daysSinceActive = Math.floor((now - lastActive.getTime()) / (1000 * 60 * 60 * 24));
+
+                                    this.players.push({
+                                        id: playerData.playerId,
+                                        name: playerData.playerName,
+                                        money: playerData.money || 0,
+                                        oil: playerData.oil || 0,
+                                        lands: playerData.lands || 0,
+                                        level: playerData.level || 1,
+                                        levelName: playerData.levelName || 'Новичок',
+                                        lastOnline: playerData.lastActive,
+                                        daysInactive: daysSinceActive,
+                                        playTime: playerData.totalPlayTime || 0
+                                    });
+                                } catch (e) {
+                                    console.error('Error loading player data:', e);
+                                }
                             }
-                        ];
-        
+                        }
+
+                        // Sort by last active (most recent first)
+                        this.players.sort((a, b) => b.lastOnline - a.lastOnline);
+
                         this.displayPlayers();
                         this.updateStats();
                     }
         
-                    resetDemoData() {
-                        if (confirm('Вы уверены, что хотите сбросить демо данные?')) {
+                    resetAllPlayers() {
+                        if (confirm('Вы уверены, что хотите сбросить прогресс ВСЕХ игроков? Это действие нельзя отменить!')) {
+                            // Clear all player data from localStorage
+                            for (let i = localStorage.length - 1; i >= 0; i--) {
+                                const key = localStorage.key(i);
+                                if (key && (key.startsWith('oilGame') || key.startsWith('admin_player_data_'))) {
+                                    localStorage.removeItem(key);
+                                }
+                            }
                             this.players = [];
-                            this.stats = {
-                                totalPlayers: 0,
-                                activePlayers: 0,
-                                totalMoney: 0,
-                                totalOil: 0,
-                                totalLands: 0,
-                                averageMoney: 0
-                            };
+                            this.updateStats();
                             this.displayPlayers();
                             this.displayStats();
+                            alert('Все данные игроков сброшены!');
                         }
                     }
         
@@ -512,29 +518,41 @@
                     displayPlayers() {
                         const playersList = document.getElementById('playersList');
                         playersList.innerHTML = '';
-        
+
                         if (this.players.length === 0) {
                             playersList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-gray);">Нет данных об игроках</div>';
                             return;
                         }
-        
+
                         this.players.forEach(player => {
+                            const isActive = player.daysInactive <= 1;
+                            const statusColor = isActive ? 'var(--success)' : player.daysInactive <= 7 ? 'var(--accent-yellow)' : 'var(--danger)';
+                            const statusText = isActive ? '🟢 Активен' : player.daysInactive <= 7 ? '🟡 Недавно' : '🔴 Неактивен';
+
                             const playerElement = document.createElement('div');
                             playerElement.className = 'player-item';
                             playerElement.innerHTML = `
                                 <div class="player-info">
-                                    <div class="player-name">${player.name} (${player.levelName})</div>
+                                    <div class="player-name" style="color: var(--accent-gold); font-weight: bold;">
+                                        ${player.name} (${player.levelName})
+                                        <span style="font-size: 12px; color: ${statusColor}; margin-left: 10px;">${statusText}</span>
+                                    </div>
                                     <div class="player-stats">
-                                        Деньги: ${this.formatNumber(player.money)}₽ |
-                                        Нефть: ${this.formatNumber(player.oil)} |
-                                        Участки: ${player.lands} |
-                                        Уровень: ${player.level} |
-                                        Последний онлайн: ${this.formatDate(player.lastOnline)}
+                                        💰 Деньги: ${this.formatNumber(player.money)}₽ |
+                                        🛢️ Нефть: ${this.formatNumber(player.oil)} б. |
+                                        🏞️ Участки: ${player.lands} |
+                                        📊 Уровень: ${player.level} |
+                                        ⏰ Время игры: ${this.formatPlayTime(player.playTime)} |
+                                        📅 Последний онлайн: ${this.formatDate(player.lastOnline)}
+                                        ${player.daysInactive > 0 ? ` (${player.daysInactive} д. назад)` : ''}
                                     </div>
                                 </div>
                                 <div class="player-actions">
                                     <button class="player-action-btn reset" onclick="adminPanel.resetPlayer('${player.id}')">
-                                        Сбросить
+                                        🚨 Сбросить
+                                    </button>
+                                    <button class="player-action-btn" style="background: var(--bg-darker); color: var(--text-light);" onclick="adminPanel.viewPlayerDetails('${player.id}')">
+                                        👁️ Детали
                                     </button>
                                 </div>
                             `;
@@ -543,12 +561,46 @@
                     }
         
                     resetPlayer(playerId) {
-                        if (confirm(`Вы уверены, что хотите сбросить прогресс игрока ${playerId}?`)) {
-                            // Сбрасываем данные игрока из демо массива
+                        const player = this.players.find(p => p.id === playerId);
+                        if (confirm(`Вы уверены, что хотите сбросить прогресс игрока "${player ? player.name : playerId}"?\n\nЭто действие нельзя отменить!`)) {
+                            // Remove from localStorage
+                            const playerKey = 'admin_player_data_' + playerId;
+                            localStorage.removeItem(playerKey);
+
+                            // Also remove main game save if it's this player
+                            if (window.game && ((playerId === 'guest' && !window.game.telegramUser) ||
+                                (window.game.telegramUser && window.game.telegramUser.id.toString() === playerId))) {
+                                localStorage.removeItem('oilGame');
+                            }
+
+                            // Remove from players array and update display
                             this.players = this.players.filter(p => p.id !== playerId);
                             this.displayPlayers();
                             this.updateStats();
+                            alert(`Прогресс игрока сброшен!`);
                         }
+                    }
+
+                    viewPlayerDetails(playerId) {
+                        const player = this.players.find(p => p.id === playerId);
+                        if (!player) {
+                            alert('Игрок не найден');
+                            return;
+                        }
+
+                        const details = `
+Игрок: ${player.name}
+ID: ${player.id}
+Уровень: ${player.level} (${player.levelName})
+Деньги: ${this.formatNumber(player.money)}₽
+Нефть: ${this.formatNumber(player.oil)} баррелей
+Участки: ${player.lands}
+Время игры: ${this.formatPlayTime(player.playTime)}
+Последний онлайн: ${this.formatDate(player.lastOnline)}
+Статус: ${player.daysInactive <= 1 ? 'Активен' : player.daysInactive <= 7 ? 'Недавно активен' : 'Неактивен'}
+                        `;
+
+                        alert(details);
                     }
         
                     // Остальные методы остаются для совместимости с реальным режимом
@@ -572,12 +624,53 @@
                         const date = new Date(timestamp);
                         const now = new Date();
                         const diff = now - date;
-        
+
                         if (diff < 60000) return 'только что';
                         if (diff < 3600000) return `${Math.floor(diff / 60000)} мин назад`;
                         if (diff < 86400000) return `${Math.floor(diff / 3600000)} ч назад`;
-        
-                        return date.toLocaleDateString();
+
+                        return date.toLocaleDateString('ru-RU');
+                    }
+
+                    formatPlayTime(milliseconds) {
+                        if (!milliseconds) return '0 ч';
+
+                        const hours = Math.floor(milliseconds / (1000 * 60 * 60));
+                        const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
+
+                        if (hours > 0) {
+                            return `${hours} ч ${minutes} мин`;
+                        } else {
+                            return `${minutes} мин`;
+                        }
+                    }
+
+                    exportPlayersData() {
+                        if (this.players.length === 0) {
+                            alert('Нет данных для экспорта');
+                            return;
+                        }
+
+                        const csvContent = [
+                            ['ID', 'Имя', 'Деньги', 'Нефть', 'Участки', 'Уровень', 'Время игры', 'Последний онлайн', 'Дней неактивности'],
+                            ...this.players.map(p => [
+                                p.id,
+                                p.name,
+                                p.money,
+                                p.oil,
+                                p.lands,
+                                p.level,
+                                this.formatPlayTime(p.playTime),
+                                this.formatDate(p.lastOnline),
+                                p.daysInactive
+                            ])
+                        ].map(row => row.join(',')).join('\n');
+
+                        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `players_data_${new Date().toISOString().split('T')[0]}.csv`;
+                        link.click();
                     }
                 }
         
@@ -587,21 +680,39 @@
                     adminPanel = new AdminPanel();
                 });
         
-                // Демо функции
+                // Player management functions
+                function loadRealPlayers() {
+                    adminPanel.loadRealPlayers();
+                }
+
+                function resetAllPlayers() {
+                    adminPanel.resetAllPlayers();
+                }
+
+                function exportPlayersData() {
+                    adminPanel.exportPlayersData();
+                }
+
+                // Legacy demo functions (for compatibility)
                 function loadDemoStats() {
                     adminPanel.loadDemoStats();
                 }
-        
+
                 function loadDemoPlayers() {
                     adminPanel.loadDemoPlayers();
                 }
-        
+
                 function resetDemoData() {
                     adminPanel.resetDemoData();
                 }
-        
+
                 function generateSampleData() {
                     adminPanel.generateSampleData();
+                }
+        
+                function showDemoPanel() {
+                    document.getElementById('botInstructions').style.display = 'none';
+                    document.getElementById('demoContent').style.display = 'block';
                 }
             </script>
         </body>
@@ -610,6 +721,19 @@
                 </div>
 
                 <div class="admin-section">
+                    <h3>👥 Демо управление игроками</h3>
+                    <div class="admin-actions">
+                        <button class="admin-btn" onclick="loadDemoPlayers()">📋 Загрузить демо игроков</button>
+                        <button class="admin-btn danger" onclick="resetDemoData()">🚨 Сбросить демо данные</button>
+                        <button class="admin-btn" onclick="generateSampleData()">🎲 Сгенерировать тестовые данные</button>
+                    </div>
+
+                    <div class="players-list" id="playersList">
+                        <div style="text-align: center; padding: 20px; color: var(--text-gray);">
+                            Нажмите "Загрузить демо игроков" для просмотра тестовых данных
+                        </div>
+                    </div>
+                </div>
                     <h3>👥 Демо управление игроками</h3>
                     <div class="admin-actions">
                         <button class="admin-btn" onclick="loadDemoPlayers()">📋 Загрузить демо игроков</button>
