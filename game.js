@@ -50,6 +50,46 @@ class Game {
         this.updateUI();
     }
 
+    async loadGame() {
+        try {
+            // Try to load from Firebase first
+            if (window.db && window.getDoc && window.doc) {
+                try {
+                    const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
+                    const docRef = window.doc(window.db, 'players', playerId);
+                    const docSnap = await window.getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const firebaseData = docSnap.data();
+                        if (firebaseData && firebaseData.gameData) {
+                            console.log('Loading game from Firebase...');
+                            const saveData = firebaseData.gameData;
+                            this.state = saveData.state;
+                            this.migrateSaveData();
+                            return;
+                        }
+                    }
+                } catch (firebaseError) {
+                    console.error('Firebase load failed:', firebaseError);
+                }
+            }
+
+            // Fallback to localStorage
+            const saved = localStorage.getItem('oilGame');
+            if (saved) {
+                console.log('Loading game from localStorage...');
+                const saveData = JSON.parse(saved);
+                this.state = saveData.state;
+                this.migrateSaveData();
+            } else {
+                console.log('No saved game found, starting fresh');
+            }
+        } catch (e) {
+            console.error('Failed to load game:', e);
+            // Continue with default state
+        }
+    }
+
     initTelegram() {
         if (window.Telegram && window.Telegram.WebApp) {
             const tg = window.Telegram.WebApp;
