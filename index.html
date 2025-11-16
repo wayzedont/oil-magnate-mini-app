@@ -32,6 +32,7 @@
             <button class="nav-tab" data-tab="sell">Продажа</button>
             <button class="nav-tab" data-tab="myLands">Скважины</button>
             <button class="nav-tab" data-tab="lands">Участки</button>
+            <button class="nav-tab" data-tab="company">Компания</button>
         </div>
 
         <!-- Tab: Work -->
@@ -114,6 +115,46 @@
                 </button>
             </div>
             <div class="lands-grid" id="landsGrid"></div>
+        </div>
+
+        <!-- Tab: Company -->
+        <div class="tab-content" data-tab="company">
+            <div class="company-screen">
+                <div class="company-header">
+                    <h2>Моя компания</h2>
+                    <button class="btn-generate" id="createOwnCompany" style="display: none;">
+                        🏭 Создать компанию
+                        <span style="font-size: 11px; display: block; margin-top: 3px;">50,000₽</span>
+                    </button>
+                </div>
+                <div id="companyPlaceholder" class="no-company-message">
+                    <p>У вас еще нет компании</p>
+                    <p style="color: var(--text-gray); font-size: 14px;">Создайте компанию, чтобы начать производство</p>
+                </div>
+                <div id="companyManagement" style="display: none;">
+                    <div class="company-info">
+                        <p>Управление производством и закупками</p>
+                    </div>
+                    <div class="production-section">
+                        <h3>Производство</h3>
+                        <div id="productsList"></div>
+                    </div>
+                    <div class="buyback-section">
+                        <h3>Закупка нефти</h3>
+                        <div class="buyback-controls">
+                            <label>
+                                <input type="checkbox" id="autoBuyEnabled"> Автоматическая закупка
+                            </label>
+                            <div class="buyback-money">
+                                <span>Бюджет: </span>
+                                <input type="number" id="buybackMoneyAmount" min="0" placeholder="0">
+                                <button id="setBuybackMoney">Установить</button>
+                            </div>
+                            <div id="currentBuybackPrice">Текущая цена: --₽</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Modal: Profile -->
@@ -201,6 +242,18 @@
                     <h3>Установить вышку</h3>
                     <div class="rigs-list" id="rigsList"></div>
                     <div class="rig-status" id="rigStatus"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Event -->
+        <div class="modal" id="eventModal">
+            <div class="modal-content" style="max-width: 500px;">
+                <button class="modal-close" id="closeEventModal">×</button>
+                <h2 id="eventTitle">Событие</h2>
+                <div class="event-content">
+                    <p id="eventDescription"></p>
+                    <div id="eventChoices" class="event-choices"></div>
                 </div>
             </div>
         </div>

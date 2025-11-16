@@ -10,7 +10,14 @@ class Game {
             companies: [],
             analyzedLands: [],
             rigSlots: CONFIG.initial.rigSlots || 2,
-            purchasedSlots: 0
+            purchasedSlots: 0,
+            companyContracts: {},
+            lastOnlineTime: Date.now(),
+            offlineProgress: 0,
+            ownCompany: null,
+            events: [],
+            priceMultiplier: 1.0,
+            priceMultiplierEndTime: 0
         };
 
         this.selectedLandId = null;
@@ -30,6 +37,13 @@ class Game {
         this.startGameLoop();
         // Запустить бонусный кружок через некоторое время после загрузки
         setTimeout(() => this.scheduleBonusCircle(), 5000);
+
+        // Проверить оффлайн прогресс
+        this.checkOfflineProgress();
+
+        // Запустить систему событий
+        this.scheduleEvent();
+
         this.updateUI();
     }
 
@@ -66,6 +80,19 @@ class Game {
         
         document.getElementById('upgradeClickSkill').addEventListener('click', () => this.upgradeClickPower());
         document.getElementById('resetProgressButton').addEventListener('click', () => this.resetProgress());
+
+        // Events
+        document.getElementById('closeEventModal').addEventListener('click', () => this.closeEventModal());
+
+        // Own Company
+        document.getElementById('createOwnCompany').addEventListener('click', () => this.createOwnCompany());
+        document.getElementById('autoBuyEnabled').addEventListener('change', (e) => {
+            if (this.state.ownCompany) {
+                this.state.ownCompany.autoBuyEnabled = e.target.checked;
+                this.saveGame();
+            }
+        });
+        document.getElementById('setBuybackMoney').addEventListener('click', () => this.setBuybackMoney());
         
         document.getElementById('closeLandModal').addEventListener('click', () => this.closeLandModal());
         document.getElementById('closeProfileModal').addEventListener('click', () => this.closeProfileModal());
@@ -205,6 +232,8 @@ class Game {
         } else if (tabName === 'lands') {
             this.renderLands();
             this.updateGenerationButton();
+        } else if (tabName === 'company') {
+            this.renderCompanyTab();
         }
     }
 
@@ -343,7 +372,7 @@ class Game {
             currentOil: oilReserve,
             quality,
             owned: false,
-            rig: null
+            rigs: []
         };
     }
 
@@ -354,28 +383,29 @@ class Game {
         const totalSlotsElement = document.getElementById('totalSlots');
         const slotCostElement = document.getElementById('slotCost');
         const buySlotButton = document.getElementById('buySlotButton');
-        
+
         grid.innerHTML = '';
-        
+
         const ownedLands = this.state.lands.filter(land => land.owned);
-        const activeLands = ownedLands.filter(land => land.rig && land.currentOil > 0);
-        
+        // Считаем все скважины с установленными вышками (даже истощенные, чтобы стимулировать их удаление)
+        const activeLands = ownedLands.filter(land => land.rigs && land.rigs.length > 0);
+
         // Обновляем информацию о слотах
         if (usedSlotsElement) usedSlotsElement.textContent = activeLands.length;
         if (totalSlotsElement) totalSlotsElement.textContent = this.state.rigSlots;
-        
+
         // Обновляем кнопку покупки слота
         const slotCost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, this.state.purchasedSlots));
         if (slotCostElement) slotCostElement.textContent = `${this.formatNumber(slotCost)}₽`;
         if (buySlotButton) buySlotButton.disabled = this.state.money < slotCost;
-        
+
         if (ownedLands.length === 0) {
             noLandsMessage.style.display = 'block';
             grid.style.display = 'none';
         } else {
             noLandsMessage.style.display = 'none';
             grid.style.display = 'grid';
-            
+
             ownedLands.forEach(land => {
                 const card = this.createLandCard(land, true); // true = в списке "Мои скважины"
                 grid.appendChild(card);
@@ -413,8 +443,8 @@ class Game {
         }
         
         let statusIcon = '🏜️';
-        if (land.owned && land.rig) {
-            statusIcon = CONFIG.rigs.types.find(r => r.id === land.rig.type).icon;
+        if (land.owned && land.rigs && land.rigs.length > 0) {
+            statusIcon = CONFIG.rigs.types.find(r => r.id === land.rigs[0].type).icon;
         } else if (land.owned) {
             statusIcon = '✅';
         }
@@ -434,7 +464,7 @@ class Game {
             </div>
             <div class="land-price">${this.formatNumber(land.price)}₽</div>
             ${qualityHint ? `<div class="land-quality ${this.getQualityClass(land)}">${qualityHint}</div>` : ''}
-            ${land.owned && land.rig ? this.createRigInfo(land) : ''}
+            ${land.owned && land.rigs && land.rigs.length > 0 ? this.createRigInfo(land) : ''}
             ${deleteButton}
         `;
         
@@ -465,12 +495,18 @@ class Game {
     }
 
     createRigInfo(land) {
-        const rig = CONFIG.rigs.types.find(r => r.id === land.rig.type);
+        const rigs = land.rigs.map(rig => CONFIG.rigs.types.find(rt => rt.id === rig.type));
         const progress = ((land.oilReserve - land.currentOil) / land.oilReserve) * 100;
-        
+
+        const rigInfo = rigs.map((rig, index) => `
+            <div>${rig.icon} ${rig.name} ${land.rigs.length > 1 ? `(${index + 1})` : ''}</div>
+            <div>Скорость: ${rig.extractionRate} б./сек</div>
+        `).join('');
+
         return `
             <div class="land-rig-info">
-                <div>${rig.name}</div>
+                ${rigInfo}
+                <div>Всего вышек: ${land.rigs.length}</div>
                 <div>Осталось: ${this.formatNumber(land.currentOil)} б.</div>
                 <div class="land-progress">
                     <div class="progress-bar">
@@ -558,10 +594,10 @@ class Game {
         const land = this.state.lands.find(l => l.id === this.selectedLandId);
 
         if (this.state.money >= land.price) {
-            // Проверяем: есть ли свободные слоты для установки вышки
-            const activeLands = this.state.lands.filter(l => l.owned && l.rig && l.currentOil > 0);
-            if (activeLands.length >= this.state.rigSlots) {
-                alert(`Недостаточно слотов для вышек! У вас ${this.state.rigSlots} слотов, все заняты активными скважинами. Купите дополнительный слот или удалите истощённую скважину.`);
+            // Проверяем: есть ли свободные слоты для установки вышки (все купленные участки занимают слоты)
+            const ownedLands = this.state.lands.filter(l => l.owned);
+            if (ownedLands.length >= this.state.rigSlots) {
+                alert(`Нельзя купить участок! У вас ${this.state.rigSlots} слотов для вышек, все заняты. Купите дополнительный слот, чтобы освободить место.`);
                 return;
             }
 
@@ -584,20 +620,43 @@ class Game {
     renderRigs(land) {
         const rigsList = document.getElementById('rigsList');
         const rigStatus = document.getElementById('rigStatus');
-        
-        if (land.rig) {
-            rigsList.style.display = 'none';
-            const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rig.type);
+
+        if (land.rigs && land.rigs.length > 0) {
+            rigsList.style.display = 'flex';
+            const existingRigsHtml = land.rigs.map((rig, index) => {
+                const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                return `
+                    <div class="existing-rig">
+                        <h4>${rigConfig.icon} ${rigConfig.name} ${land.rigs.length > 1 ? `(${index + 1})` : ''} работает</h4>
+                        <p>Скорость: ${rigConfig.extractionRate} б./сек</p>
+                        <button class="btn-remove-rig" onclick="game.removeRig(${land.id}, ${index})">Убрать вышку</button>
+                    </div>
+                `;
+            }).join('');
+
             rigStatus.innerHTML = `
-                <h4>${rigConfig.icon} ${rigConfig.name} работает</h4>
-                <p>Осталось нефти: ${this.formatNumber(land.currentOil)} баррелей</p>
-                <p>Добыто: ${this.formatNumber(land.oilReserve - land.currentOil)} баррелей</p>
-                <p>Скорость: ${rigConfig.extractionRate} б./сек</p>
+                <div class="existing-rigs">
+                    <h4>Установленные вышки:</h4>
+                    ${existingRigsHtml}
+                    <p>Осталось нефти: ${this.formatNumber(land.currentOil)} баррелей</p>
+                    <p>Добыто: ${this.formatNumber(land.oilReserve - land.currentOil)} баррелей</p>
+                    <p>Общая скорость: ${land.rigs.reduce((sum, rig) => sum + CONFIG.rigs.types.find(r => r.id === rig.type).extractionRate, 0)} б./сек</p>
+                </div>
             `;
+
+            rigsList.innerHTML = '';
+            if (land.rigs.length < CONFIG.rigs.maxPerLand) {
+                CONFIG.rigs.types.forEach(rig => {
+                    const option = this.createRigOption(rig, land);
+                    rigsList.appendChild(option);
+                });
+            } else {
+                rigsList.innerHTML = '<p style="color: var(--text-gray); text-align: center; width: 100%;">Максимум вышек на участке</p>';
+            }
         } else {
             rigsList.style.display = 'flex';
             rigStatus.innerHTML = '<p style="color: var(--text-gray);">Выберите вышку для установки</p>';
-            
+
             rigsList.innerHTML = '';
             CONFIG.rigs.types.forEach(rig => {
                 const option = this.createRigOption(rig, land);
@@ -636,26 +695,44 @@ class Game {
     installRig(landId, rigId) {
         const land = this.state.lands.find(l => l.id === landId);
         const rig = CONFIG.rigs.types.find(r => r.id === rigId);
-        
-        // Проверяем количество свободных слотов (только активные скважины с нефтью)
-        const activeLands = this.state.lands.filter(l => l.owned && l.rig && l.currentOil > 0);
-        
-        // Если уже есть вышка на этом участке, не проверяем слоты (это замена)
-        if (!land.rig && activeLands.length >= this.state.rigSlots) {
-            alert(`Все слоты заняты! У вас ${this.state.rigSlots} слотов. Купите дополнительный слот или удалите истощённую скважину.`);
+
+        // Проверяем количество свободных слотов (все скважины с установленными вышками)
+        const activeLands = this.state.lands.filter(l => l.owned && l.rigs && l.rigs.length > 0);
+
+        // Если это первая вышка и слоты заняты, проверяем
+        if (land.rigs.length === 0 && activeLands.length >= this.state.rigSlots) {
+            alert(`Все слоты заняты! У вас ${this.state.rigSlots} слотов для вышек. Купите дополнительный слот или удалите истощённую скважину, чтобы освободить место.`);
             return;
         }
-        
-        if (this.state.money >= rig.price && !land.rig) {
+
+        if (this.state.money >= rig.price && land.rigs.length < CONFIG.rigs.maxPerLand) {
             this.state.money -= rig.price;
-            land.rig = {
+            land.rigs.push({
                 type: rigId,
                 installedAt: Date.now()
-            };
-            
+            });
+
             this.updateUI();
             this.openLandModal(landId);
             this.saveGame();
+        }
+    }
+
+    removeRig(landId, rigIndex) {
+        const land = this.state.lands.find(l => l.id === landId);
+
+        if (land && land.rigs && land.rigs[rigIndex]) {
+            const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rigs[rigIndex].type);
+            const refund = Math.floor(rigConfig.price * 0.5); // Возврат 50% стоимости
+
+            this.state.money += refund;
+            land.rigs.splice(rigIndex, 1);
+
+            this.updateUI();
+            this.openLandModal(landId);
+            this.saveGame();
+
+            this.showFloatingNumber(refund, window.innerWidth / 2, window.innerHeight / 2);
         }
     }
     
@@ -675,26 +752,60 @@ class Game {
     
     deleteDepletedLand(landId) {
         const land = this.state.lands.find(l => l.id === landId);
-        
+
         if (!land || !land.owned || land.currentOil > 0) {
             return;
         }
-        
+
         const deleteCost = Math.floor(land.price * 0.1);
-        
+
         if (this.state.money < deleteCost) {
             alert(`Недостаточно денег для удаления. Требуется: ${this.formatNumber(deleteCost)}₽`);
             return;
         }
-        
+
         if (confirm(`Удалить истощенную скважину за ${this.formatNumber(deleteCost)}₽?`)) {
             this.state.money -= deleteCost;
-            
+
             // Удаляем участок из списка
             this.state.lands = this.state.lands.filter(l => l.id !== landId);
-            
+
             this.updateUI();
             this.renderMyLands();
+            this.saveGame();
+        }
+    }
+
+    upgradeContract(companyId) {
+        const contract = this.state.companyContracts[companyId];
+        const company = CONFIG.companies.list.find(c => c.id === companyId);
+        const currentLevel = contract.level;
+        const nextLevel = currentLevel + 1;
+
+        if (nextLevel > company.contractLevels.length) {
+            alert('Максимальный уровень контракта достигнут!');
+            return;
+        }
+
+        const upgradeCost = company.contractLevels.find(l => l.level === nextLevel).cost;
+
+        if (this.state.money < upgradeCost) {
+            alert(`Недостаточно денег для улучшения контракта. Требуется: ${this.formatNumber(upgradeCost)}₽`);
+            return;
+        }
+
+        if (confirm(`Улучшить контракт с ${company.name} до уровня ${nextLevel} за ${this.formatNumber(upgradeCost)}₽?`)) {
+            this.state.money -= upgradeCost;
+            contract.level = nextLevel;
+
+            // Обновляем компанию в state
+            const stateCompany = this.state.companies.find(c => c.id === companyId);
+            if (stateCompany) {
+                stateCompany.contractLevel = nextLevel;
+            }
+
+            this.updateUI();
+            this.renderCompanies();
             this.saveGame();
         }
     }
@@ -749,7 +860,7 @@ class Game {
         document.getElementById('profileMoney').textContent = this.formatNumber(Math.floor(this.state.money)) + '₽';
         document.getElementById('profileOil').textContent = this.formatNumber(Math.floor(this.state.availableOil)) + ' б.';
 
-        const workingLands = this.state.lands.filter(l => l.owned && l.rig).length;
+        const workingLands = this.state.lands.filter(l => l.owned && l.rigs && l.rigs.length > 0).length;
         document.getElementById('profileLands').textContent = workingLands;
         document.getElementById('profileClickPower').textContent = this.state.clickPower + '₽';
 
@@ -793,31 +904,43 @@ class Game {
         setInterval(() => {
             this.updateCompanyRequirements();
         }, CONFIG.companies.requirementsChangeInterval);
+
+        setInterval(() => {
+            this.updatePriceMultiplier();
+        }, 1000);
+
+        setInterval(() => {
+            this.updateOwnCompany();
+        }, 1000);
     }
 
     updateRigs() {
         let hasChanges = false;
-        
+
         this.state.lands.forEach(land => {
-            if (land.rig && land.currentOil > 0) {
-                const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rig.type);
-                
-                const extracted = Math.min(rigConfig.extractionRate, land.currentOil);
-                const lost = extracted * (rigConfig.lossPercentage / 100);
-                const effective = extracted - lost;
-                
-                land.currentOil -= extracted;
-                this.state.availableOil += effective;
-                
+            if (land.rigs && land.rigs.length > 0 && land.currentOil > 0) {
+                let totalExtracted = 0;
+
+                land.rigs.forEach(rig => {
+                    const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                    const extracted = Math.min(rigConfig.extractionRate, land.currentOil);
+                    const lost = extracted * (rigConfig.lossPercentage / 100);
+                    const effective = extracted - lost;
+
+                    totalExtracted += extracted;
+                    this.state.availableOil += effective;
+                });
+
+                land.currentOil -= totalExtracted;
                 hasChanges = true;
-                
-                // Если нефть закончилась, отмечаем что слот освободился
+
+                // Если нефть закончилась
                 if (land.currentOil <= 0) {
                     land.currentOil = 0;
                 }
             }
         });
-        
+
         if (hasChanges) {
             this.updateUI();
             // Обновляем отображение слотов если на вкладке "Мои скважины"
@@ -832,17 +955,19 @@ class Game {
 
     calculateOilExtractionRate() {
         let total = 0;
-        
+
         this.state.lands.forEach(land => {
-            if (land.rig && land.currentOil > 0) {
-                const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rig.type);
-                const extracted = rigConfig.extractionRate;
-                const lost = extracted * (rigConfig.lossPercentage / 100);
-                const effective = extracted - lost;
-                total += effective;
+            if (land.rigs && land.rigs.length > 0 && land.currentOil > 0) {
+                land.rigs.forEach(rig => {
+                    const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                    const extracted = rigConfig.extractionRate;
+                    const lost = extracted * (rigConfig.lossPercentage / 100);
+                    const effective = extracted - lost;
+                    total += effective;
+                });
             }
         });
-        
+
         return total;
     }
 
@@ -883,12 +1008,334 @@ class Game {
             version: '1.0',
             savedAt: Date.now()
         };
-        
+
         try {
             localStorage.setItem('oilGame', JSON.stringify(saveData));
         } catch (e) {
             console.error('Failed to save game:', e);
         }
+    }
+
+    checkOfflineProgress() {
+        const now = Date.now();
+        const offlineTime = now - this.state.lastOnlineTime;
+
+        if (offlineTime > 10000) { // More than 10 seconds offline
+            const cappedOfflineTime = Math.min(offlineTime, CONFIG.offlineProgress.maxTime);
+            const efficiency = CONFIG.offlineProgress.efficiency;
+            const effectiveTime = cappedOfflineTime * efficiency;
+
+            const extractionRate = this.calculateOilExtractionRate();
+            const offlineOil = Math.floor((extractionRate * effectiveTime) / 1000); // Convert to seconds
+
+            if (offlineOil > 0) {
+                this.state.availableOil += offlineOil;
+                this.state.offlineProgress = offlineOil;
+
+                this.showOfflineModal(offlineOil, Math.floor(cappedOfflineTime / 1000 / 60));
+            }
+        }
+
+        this.state.lastOnlineTime = now;
+    }
+
+    showOfflineModal(oilGained, minutesOffline) {
+        const modal = document.createElement('div');
+        modal.className = 'modal active';
+        modal.id = 'offlineModal';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <button class="modal-close" id="closeOfflineModal">×</button>
+                <h2>Добро пожаловать обратно!</h2>
+                <div style="text-align: center; padding: 20px;">
+                    <div style="font-size: 48px; margin: 20px 0;">🛢️</div>
+                    <p>Пока вас не было ${minutesOffline} минут, ваши вышки добыли:</p>
+                    <p style="font-size: 24px; color: var(--accent-gold); font-weight: bold;">+${this.formatNumber(oilGained)} баррелей нефти</p>
+                    <button class="btn-buy" id="closeOfflineBtn" style="margin-top: 20px;">Отлично!</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Add event listeners to close the modal
+        document.getElementById('closeOfflineModal').addEventListener('click', () => modal.remove());
+        document.getElementById('closeOfflineBtn').addEventListener('click', () => modal.remove());
+    }
+
+    scheduleEvent() {
+        if (!CONFIG.events.enabled) return;
+
+        setTimeout(() => {
+            this.triggerRandomEvent();
+            this.scheduleEvent();
+        }, CONFIG.events.interval + Math.random() * CONFIG.events.interval * 0.5);
+    }
+
+    triggerRandomEvent() {
+        const eventConfig = CONFIG.events.types[Math.floor(Math.random() * CONFIG.events.types.length)];
+        this.showEventModal(eventConfig);
+    }
+
+    showEventModal(eventConfig) {
+        const modal = document.getElementById('eventModal');
+        if (!modal) return;
+
+        document.getElementById('eventTitle').textContent = eventConfig.title;
+        document.getElementById('eventDescription').textContent = eventConfig.description;
+
+        const choicesContainer = document.getElementById('eventChoices');
+        choicesContainer.innerHTML = '';
+
+        if (eventConfig.choices.length > 0) {
+            eventConfig.choices.forEach((choice, index) => {
+                const button = document.createElement('button');
+                button.className = 'btn-buy';
+                button.textContent = choice.text;
+                button.onclick = () => this.resolveEvent(eventConfig, choice.effect, index);
+                choicesContainer.appendChild(button);
+            });
+        } else {
+            // Auto-resolve events without choices
+            setTimeout(() => this.resolveEvent(eventConfig, eventConfig.effect), 3000);
+        }
+
+        modal.classList.add('active');
+    }
+
+    resolveEvent(eventConfig, effect, choiceIndex = null) {
+        this.closeEventModal();
+
+        // Apply effects
+        if (effect.money) {
+            this.state.money += effect.money;
+        }
+        if (effect.oil) {
+            this.state.availableOil += effect.oil;
+        }
+        if (effect.priceMultiplier) {
+            this.state.priceMultiplier = effect.priceMultiplier;
+            this.state.priceMultiplierEndTime = Date.now() + (effect.duration || 0);
+        }
+        if (effect.freeRig) {
+            // Add free rig to first available land
+            const availableLand = this.state.lands.find(l => l.owned && l.rigs.length < CONFIG.rigs.maxPerLand);
+            if (availableLand) {
+                availableLand.rigs.push({
+                    type: effect.freeRig,
+                    installedAt: Date.now()
+                });
+            }
+        }
+
+        this.updateUI();
+        this.saveGame();
+    }
+
+    closeEventModal() {
+        const modal = document.getElementById('eventModal');
+        if (modal) {
+            modal.classList.remove('active');
+        }
+    }
+
+    updatePriceMultiplier() {
+        const now = Date.now();
+        if (this.state.priceMultiplierEndTime && now >= this.state.priceMultiplierEndTime) {
+            this.state.priceMultiplier = 1.0;
+            this.state.priceMultiplierEndTime = 0;
+        }
+    }
+
+    updateOwnCompany() {
+        if (!this.state.ownCompany) return;
+
+        const company = this.state.ownCompany;
+        const now = Date.now();
+
+        // Update production
+        company.products.forEach(product => {
+            if (product.inProduction && now >= product.productionEndTime) {
+                product.inProduction = false;
+                product.quantity = (product.quantity || 0) + 1;
+            }
+        });
+
+        // Update buyback prices
+        const marketPrice = this.calculateAverageOilPrice();
+        company.currentBuybackPrice = Math.max(CONFIG.ownCompany.buyback.minPrice,
+            Math.min(CONFIG.ownCompany.buyback.maxPrice, marketPrice * (0.8 + Math.random() * 0.4)));
+
+        // Auto-buy oil if enabled
+        if (company.autoBuyEnabled && company.buybackMoney > 0) {
+            const canBuy = Math.min(
+                Math.floor(company.buybackMoney / company.currentBuybackPrice),
+                CONFIG.ownCompany.buyback.baseVolume
+            );
+            if (canBuy > 0) {
+                company.buybackMoney -= canBuy * company.currentBuybackPrice;
+                this.state.availableOil += canBuy;
+            }
+        }
+
+        this.updateOwnCompanyUI();
+    }
+
+    createOwnCompany() {
+        if (this.state.ownCompany) {
+            alert('У вас уже есть компания!');
+            return;
+        }
+
+        if (this.state.money < CONFIG.ownCompany.creationCost) {
+            alert(`Недостаточно денег! Нужно ${this.formatNumber(CONFIG.ownCompany.creationCost)}₽`);
+            return;
+        }
+
+        this.state.money -= CONFIG.ownCompany.creationCost;
+        this.state.ownCompany = {
+            products: CONFIG.ownCompany.products.map(p => ({
+                ...p,
+                quantity: 0,
+                inProduction: false,
+                productionEndTime: 0
+            })),
+            buybackMoney: 0,
+            autoBuyEnabled: false,
+            currentBuybackPrice: 7
+        };
+
+        document.getElementById('createOwnCompany').style.display = 'none';
+        this.switchTab('company');
+
+        this.updateOwnCompanyUI();
+        this.updateUI();
+        this.saveGame();
+    }
+
+    renderCompanyTab() {
+        const placeholder = document.getElementById('companyPlaceholder');
+        const management = document.getElementById('companyManagement');
+        const createBtn = document.getElementById('createOwnCompany');
+
+        if (this.state.ownCompany) {
+            placeholder.style.display = 'none';
+            management.style.display = 'block';
+            createBtn.style.display = 'none';
+        } else {
+            placeholder.style.display = 'block';
+            management.style.display = 'none';
+            createBtn.style.display = 'block';
+        }
+    }
+
+    startProduction(productId) {
+        if (!this.state.ownCompany) return;
+
+        const product = this.state.ownCompany.products.find(p => p.id === productId);
+        if (!product || product.inProduction) return;
+
+        // Check resources
+        if (this.state.availableOil < product.oilRequired || this.state.money < product.moneyRequired) {
+            alert('Недостаточно ресурсов!');
+            return;
+        }
+
+        // Deduct resources
+        this.state.availableOil -= product.oilRequired;
+        this.state.money -= product.moneyRequired;
+
+        // Start production
+        product.inProduction = true;
+        product.productionEndTime = Date.now() + product.productionTime;
+
+        this.updateOwnCompanyUI();
+        this.updateUI();
+        this.saveGame();
+    }
+
+    sellProduct(productId) {
+        if (!this.state.ownCompany) return;
+
+        const product = this.state.ownCompany.products.find(p => p.id === productId);
+        if (!product || product.quantity <= 0) return;
+
+        // Calculate sell price with market fluctuation
+        const basePrice = product.basePrice;
+        const fluctuation = 0.8 + Math.random() * 0.4; // 80% to 120%
+        const sellPrice = Math.floor(basePrice * fluctuation);
+
+        this.state.money += sellPrice;
+        product.quantity--;
+
+        this.showFloatingNumber(sellPrice, window.innerWidth / 2, window.innerHeight / 2);
+        this.updateOwnCompanyUI();
+        this.updateUI();
+        this.saveGame();
+    }
+
+    setBuybackMoney() {
+        if (!this.state.ownCompany) return;
+
+        const amount = parseInt(document.getElementById('buybackMoneyAmount').value) || 0;
+
+        if (amount > this.state.money) {
+            alert('Недостаточно денег!');
+            return;
+        }
+
+        this.state.money -= amount;
+        this.state.ownCompany.buybackMoney += amount;
+
+        document.getElementById('buybackMoneyAmount').value = '';
+        this.updateOwnCompanyUI();
+        this.updateUI();
+        this.saveGame();
+    }
+
+    updateOwnCompanyUI() {
+        if (!this.state.ownCompany) return;
+
+        const company = this.state.ownCompany;
+        const productsList = document.getElementById('productsList');
+        const buybackPriceElement = document.getElementById('currentBuybackPrice');
+
+        // Update products
+        productsList.innerHTML = company.products.map(product => `
+            <div class="product-card">
+                <div class="product-header">
+                    <span class="product-name">${product.name}</span>
+                    <span class="product-quantity">Кол-во: ${product.quantity}</span>
+                </div>
+                <div class="product-info">
+                    <div>Требуется: ${product.oilRequired} нефти + ${this.formatNumber(product.moneyRequired)}₽</div>
+                    <div>Время производства: ${Math.floor(product.productionTime / 1000)} сек</div>
+                    <div>Цена продажи: ~${this.formatNumber(product.basePrice)}₽</div>
+                </div>
+                <div class="product-actions">
+                    <button class="btn-buy" onclick="game.startProduction('${product.id}')" ${product.inProduction ? 'disabled' : ''}>
+                        ${product.inProduction ? 'Производится...' : 'Произвести'}
+                    </button>
+                    <button class="btn-sell" onclick="game.sellProduct('${product.id}')" ${product.quantity <= 0 ? 'disabled' : ''}>
+                        Продать
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        // Update buyback
+        document.getElementById('autoBuyEnabled').checked = company.autoBuyEnabled;
+        buybackPriceElement.textContent = `Текущая цена: ${this.formatNumber(Math.floor(company.currentBuybackPrice))}₽`;
+        document.getElementById('buybackMoneyAmount').placeholder = `Доступно: ${this.formatNumber(company.buybackMoney)}₽`;
+    }
+
+    calculateAverageOilPrice() {
+        let total = 0;
+        let count = 0;
+        this.state.companies.forEach(company => {
+            total += company.currentPrice;
+            count++;
+        });
+        return count > 0 ? total / count : 10;
     }
 
     initCompanies() {
@@ -911,44 +1358,62 @@ class Game {
                     currentDemand,
                     currentMinBuy: selectedMinBuy,
                     currentPriceMultiplier: company.priceMultipliers[originalIndex],
-                    cooldownUntil: null
+                    cooldownUntil: null,
+                    contractLevel: this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1
                 };
             });
         } else {
-            // Для загруженных компаний проверяем наличие поля cooldownUntil
+            // Для загруженных компаний проверяем наличие поля cooldownUntil и contractLevel
             this.state.companies.forEach(company => {
                 if (company.cooldownUntil === undefined) {
                     company.cooldownUntil = null;
                 }
+                if (company.contractLevel === undefined) {
+                    company.contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
+                }
             });
         }
+
+        // Инициализируем контракты, если их нет
+        if (!this.state.companyContracts) {
+            this.state.companyContracts = {};
+        }
+        CONFIG.companies.list.forEach(company => {
+            if (!this.state.companyContracts[company.id]) {
+                this.state.companyContracts[company.id] = { level: 1 };
+            }
+        });
     }
 
     updateCompanyPrices() {
         const now = Date.now();
-        
+
         this.state.companies.forEach(company => {
             const changePercent = (Math.random() - 0.5) * 2 * CONFIG.companies.maxPriceChange;
-            const basePrice = company.basePrice * company.currentPriceMultiplier;
+            const basePrice = company.basePrice * company.currentPriceMultiplier * this.state.priceMultiplier;
             const priceChange = basePrice * changePercent;
-            
+
             company.currentPrice = Math.max(1, company.currentPrice + priceChange);
             company.priceChangePercent = changePercent;
-            
+
+            // Получаем множитель уровня контракта
+            const contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
+            const contractMultiplier = company.contractLevels.find(l => l.level === contractLevel).maxDemandMultiplier;
+
             // Проверяем кулдаун - если кулдаун закончился, восстанавливаем спрос
             if (company.cooldownUntil && now >= company.cooldownUntil) {
                 company.cooldownUntil = null;
                 company.currentDemand = Math.floor(
-                    Math.random() * (company.maxDemand - company.minDemand) + company.minDemand
+                    Math.random() * (company.maxDemand * contractMultiplier - company.minDemand) + company.minDemand
                 );
             }
-            
+
             // Обновляем спрос только если НЕ в кулдауне
             if (!company.cooldownUntil) {
                 company.currentDemand = Math.floor(
-                    Math.random() * (company.maxDemand - company.minDemand) + company.minDemand
+                    Math.random() * (company.maxDemand * contractMultiplier - company.minDemand) + company.minDemand
                 );
-                
+
                 // Проверяем что currentMinBuy не больше currentDemand
                 if (company.currentMinBuy > company.currentDemand) {
                     const configCompany = CONFIG.companies.list.find(c => c.id === company.id);
@@ -962,7 +1427,7 @@ class Game {
                 }
             }
         });
-        
+
         this.renderCompanies();
         this.saveGame();
     }
@@ -1007,28 +1472,28 @@ class Game {
     createCompanyCard(company) {
         const div = document.createElement('div');
         div.className = 'company-card';
-        
+
         const priceClass = company.priceChangePercent > 0 ? 'price-up' : company.priceChangePercent < 0 ? 'price-down' : '';
         const priceIcon = company.priceChangePercent > 0 ? '📈' : company.priceChangePercent < 0 ? '📉' : '➡️';
-        
+
         // Проверяем кулдаун
         const now = Date.now();
         const isOnCooldown = company.cooldownUntil && now < company.cooldownUntil;
         const cooldownRemaining = isOnCooldown ? Math.ceil((company.cooldownUntil - now) / 1000) : 0;
-        
+
         const availableOil = Math.floor(this.state.availableOil);
         const maxSellAmount = Math.min(availableOil, company.currentDemand);
-        
+
         // Реальный минимум для продажи - минимум из того что компания требует И того что она может купить
         const effectiveMinBuy = Math.min(company.currentMinBuy, company.currentDemand);
-        
+
         // Проверяем: достаточно ли у игрока нефти для минимальной продажи
         const hasEnoughOil = availableOil >= effectiveMinBuy;
         // Проверяем: хочет ли компания вообще покупать (спрос > 0 И нет кулдауна)
         const companyCanBuy = company.currentDemand > 0 && !isOnCooldown;
         // Можно продать только если выполнены оба условия
         const canSell = hasEnoughOil && companyCanBuy;
-        
+
         let statusMessage = '';
         if (isOnCooldown) {
             statusMessage = `Кулдаун: ${cooldownRemaining} сек`;
@@ -1039,7 +1504,21 @@ class Game {
         } else {
             statusMessage = 'Можно продать:';
         }
-        
+
+        // Информация о контракте
+        const contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
+        const nextContractLevel = contractLevel < company.contractLevels.length ? contractLevel + 1 : null;
+        const nextContractCost = nextContractLevel ? company.contractLevels.find(l => l.level === nextContractLevel).cost : null;
+
+        let contractHTML = `
+            <div class="contract-info">
+                <span>Уровень контракта: ${contractLevel}</span>
+                ${nextContractCost ? `<button class="btn-upgrade-contract" onclick="game.upgradeContract('${company.id}')">
+                    Улучшить (${this.formatNumber(nextContractCost)}₽)
+                </button>` : '<span>Максимальный уровень</span>'}
+            </div>
+        `;
+
         div.innerHTML = `
             <div class="company-header">
                 <span class="company-icon">${company.icon}</span>
@@ -1062,15 +1541,16 @@ class Game {
                     <span>${statusMessage}</span>
                     <span style="color: ${canSell ? 'var(--accent-gold)' : 'var(--danger)'}">${this.formatNumber(maxSellAmount)} баррелей</span>
                 </div>
+                ${contractHTML}
             </div>
             <div class="company-sell-section">
-                <input type="number" class="sell-input" id="sell-${company.id}" 
-                       placeholder="Количество" min="${effectiveMinBuy}" max="${maxSellAmount}" value="" ${!canSell ? 'disabled' : ''}>
+                <input type="number" class="sell-input" id="sell-${company.id}"
+                        placeholder="Количество" min="${effectiveMinBuy}" max="${maxSellAmount}" value="" ${!canSell ? 'disabled' : ''}>
                 <button class="btn-sell-max" onclick="game.setSellMax('${company.id}', ${maxSellAmount})" ${!canSell ? 'disabled' : ''}>МАКС</button>
                 <button class="btn-sell" onclick="game.sellOil('${company.id}')" ${!canSell ? 'disabled' : ''}>Продать</button>
             </div>
         `;
-        
+
         return div;
     }
 
@@ -1167,6 +1647,10 @@ class Game {
                         this.state.analyzedLands = [];
                     }
 
+                    if (!this.state.companyContracts) {
+                        this.state.companyContracts = {};
+                    }
+
                     // Добавляем новые поля для слотов, если их нет
                     if (this.state.rigSlots === undefined) {
                         this.state.rigSlots = CONFIG.initial.rigSlots || 2;
@@ -1176,15 +1660,47 @@ class Game {
                         this.state.purchasedSlots = 0;
                     }
 
-                    // Ensure companies have new fields
-                    if (this.state.companies.length > 0 && !this.state.companies[0].currentMinBuy) {
-                        this.state.companies = [];
-                        this.initCompanies();
+                    // Преобразуем старые rig в rigs массив
+                    if (this.state.lands) {
+                        this.state.lands.forEach(land => {
+                            if (land.rig && !land.rigs) {
+                                land.rigs = [land.rig];
+                                delete land.rig;
+                            } else if (!land.rigs) {
+                                land.rigs = [];
+                            }
+                        });
                     }
 
-                    if (!this.state.lands || this.state.lands.length === 0) {
-                        this.generateLands();
-                    }
+                    // Ensure companies have new fields
+                                if (this.state.companies.length > 0 && !this.state.companies[0].currentMinBuy) {
+                                    this.state.companies = [];
+                                    this.initCompanies();
+                                }
+            
+                                // Initialize new fields
+                                if (this.state.lastOnlineTime === undefined) {
+                                    this.state.lastOnlineTime = Date.now();
+                                }
+                                if (this.state.offlineProgress === undefined) {
+                                    this.state.offlineProgress = 0;
+                                }
+                                if (this.state.ownCompany === undefined) {
+                                    this.state.ownCompany = null;
+                                }
+                                if (this.state.events === undefined) {
+                                    this.state.events = [];
+                                }
+                                if (this.state.priceMultiplier === undefined) {
+                                    this.state.priceMultiplier = 1.0;
+                                }
+                                if (this.state.priceMultiplierEndTime === undefined) {
+                                    this.state.priceMultiplierEndTime = 0;
+                                }
+            
+                                if (!this.state.lands || this.state.lands.length === 0) {
+                                    this.generateLands();
+                                }
                 }
             }
         } catch (e) {
