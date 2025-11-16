@@ -52,17 +52,17 @@ class Game {
 
     async loadGame() {
         try {
-            // Try to load from Firebase first
-            if (window.db && window.getDoc && window.doc) {
+            // Try to load from Firebase first (only if user is authenticated via Telegram)
+            if (this.telegramUser && window.db && window.getDoc && window.doc) {
                 try {
-                    const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
+                    const playerId = this.telegramUser.id.toString();
                     const docRef = window.doc(window.db, 'players', playerId);
                     const docSnap = await window.getDoc(docRef);
 
                     if (docSnap.exists()) {
                         const firebaseData = docSnap.data();
                         if (firebaseData && firebaseData.gameData) {
-                            console.log('Loading game from Firebase...');
+                            console.log('Loading game from Firebase for player:', playerId);
                             const saveData = firebaseData.gameData;
                             // Validate save data
                             if (this.validateSaveData(saveData)) {
@@ -80,8 +80,9 @@ class Game {
                 }
             }
 
-            // Fallback to localStorage
-            const saved = localStorage.getItem('oilGame');
+            // Fallback to localStorage (separate for each Telegram user or guest)
+            const storageKey = this.telegramUser ? `oilGame_${this.telegramUser.id}` : 'oilGame_guest';
+            const saved = localStorage.getItem(storageKey);
             if (saved) {
                 console.log('Loading game from localStorage...');
                 const saveData = JSON.parse(saved);
@@ -978,15 +979,30 @@ class Game {
     }
 
     resetProgress() {
-       if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
+        if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
             try {
-                localStorage.removeItem('oilGame');
+                // Clear localStorage (separate for each user)
+                const storageKey = this.telegramUser ? `oilGame_${this.telegramUser.id}` : 'oilGame_guest';
+                localStorage.removeItem(storageKey);
+
                 // Also clear any admin data for this user
                 if (this.telegramUser) {
                     localStorage.removeItem('admin_player_data_' + this.telegramUser.id);
                 } else {
                     localStorage.removeItem('admin_player_data_guest');
                 }
+
+                // Clear Firebase data if available
+                if (this.telegramUser && window.db && window.doc && window.deleteDoc) {
+                    try {
+                        const playerId = this.telegramUser.id.toString();
+                        const docRef = window.doc(window.db, 'players', playerId);
+                        window.deleteDoc(docRef);
+                    } catch (firebaseError) {
+                        console.error('Firebase delete failed:', firebaseError);
+                    }
+                }
+
                 location.reload();
             } catch (e) {
                 console.error('Error resetting progress:', e);
@@ -1004,8 +1020,28 @@ class Game {
                    localStorage.removeItem(key);
                }
            }
-           alert('Прогресс всех игроков сброшен!');
-           location.reload();
+
+           // Clear all Firebase players data
+           if (window.db && window.collection && window.getDocs && window.deleteDoc) {
+               try {
+                   const q = window.query(window.collection(window.db, 'players'));
+                   const querySnapshot = window.getDocs(q);
+                   querySnapshot.then(snapshot => {
+                       snapshot.forEach(doc => {
+                           window.deleteDoc(doc.ref);
+                       });
+                       alert('Прогресс всех игроков сброшен!');
+                       location.reload();
+                   });
+               } catch (error) {
+                   console.error('Error clearing Firebase:', error);
+                   alert('Ошибка сброса данных в Firebase, но localStorage очищен');
+                   location.reload();
+               }
+           } else {
+               alert('Прогресс всех игроков сброшен!');
+               location.reload();
+           }
        }
    }
 
@@ -1292,16 +1328,15 @@ class Game {
             localStorage.setItem('oilGame_test', 'test');
             localStorage.removeItem('oilGame_test');
 
-            // Local backup
-            localStorage.setItem('oilGame', JSON.stringify(saveData));
+            // Local backup (separate for each Telegram user or guest)
+            const storageKey = this.telegramUser ? `oilGame_${this.telegramUser.id}` : 'oilGame_guest';
+            localStorage.setItem(storageKey, JSON.stringify(saveData));
 
-            // Send to Firebase if available
-            if (window.db && window.doc && window.setDoc) {
+            // Send to Firebase if available and user is authenticated
+            if (this.telegramUser && window.db && window.doc && window.setDoc) {
                 try {
-                    const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
-                    const playerName = this.telegramUser ?
-                        `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim() :
-                        'Гость';
+                    const playerId = this.telegramUser.id.toString();
+                    const playerName = `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim();
 
                     await window.setDoc(window.doc(window.db, 'players', playerId), {
                         playerId: playerId,
@@ -1317,8 +1352,10 @@ class Game {
                 }
             }
 
-            // Отправляем данные администратору для статистики
-            this.sendDataToAdmin(saveData);
+            // Отправляем данные администратору для статистики (only for Telegram users)
+            if (this.telegramUser) {
+                this.sendDataToAdmin(saveData);
+            }
         } catch (e) {
             console.error('Failed to save game:', e);
             // Could implement fallback save mechanism here
