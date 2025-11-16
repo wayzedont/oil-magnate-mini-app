@@ -29,8 +29,8 @@ class Game {
     }
 
     async init() {
-        this.initTelegram();
         await this.loadGame();
+        this.initTelegram();
         this.initCompanies();
         this.generateLands();
         this.setupEventListeners();
