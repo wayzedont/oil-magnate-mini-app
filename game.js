@@ -981,13 +981,6 @@ class Game {
     async resetProgress() {
         if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
             try {
-                // Immediately reset the current game state
-                this.state = this.getDefaultState();
-                this.updateUI();
-                this.renderCompanies();
-                this.renderLands();
-                this.renderMyLands();
-
                 // Clear localStorage (separate for each user)
                 const storageKey = this.telegramUser ? `oilGame_${this.telegramUser.id}` : 'oilGame_guest';
                 localStorage.removeItem(storageKey);
@@ -1010,8 +1003,8 @@ class Game {
                     }
                 }
 
-                // Don't reload, just show success message
-                alert('Прогресс сброшен! Начинаем заново.');
+                // Force page reload to completely reset the game
+                location.reload();
             } catch (e) {
                 console.error('Error resetting progress:', e);
                 alert('Ошибка при сбросе прогресса. Попробуйте перезагрузить страницу вручную.');
