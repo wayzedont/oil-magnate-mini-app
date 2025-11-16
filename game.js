@@ -933,7 +933,7 @@ class Game {
 
         setInterval(() => {
             this.saveGame();
-        }, CONFIG.ui.saveInterval);
+        }, 1000); // Save every second for better reliability
 
         setInterval(() => {
             this.updateGenerationButton();
