@@ -978,7 +978,7 @@ class Game {
         }
     }
 
-    resetProgress() {
+    async resetProgress() {
         if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
             try {
                 // Clear localStorage (separate for each user)
@@ -997,7 +997,7 @@ class Game {
                     try {
                         const playerId = this.telegramUser.id.toString();
                         const docRef = window.doc(window.db, 'players', playerId);
-                        window.deleteDoc(docRef);
+                        await window.deleteDoc(docRef);
                     } catch (firebaseError) {
                         console.error('Firebase delete failed:', firebaseError);
                     }
