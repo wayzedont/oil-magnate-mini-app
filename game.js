@@ -1237,7 +1237,7 @@ class Game {
                         `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim() :
                         'Гость';
 
-                    await setDoc(doc(window.db, 'players', playerId), {
+                    await window.setDoc(window.doc(window.db, 'players', playerId), {
                         playerId: playerId,
                         playerName: playerName,
                         gameData: saveData,
@@ -2008,8 +2008,8 @@ class Game {
             if (window.db) {
                 try {
                     const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
-                    const docRef = doc(window.db, 'players', playerId);
-                    const docSnap = await getDoc(docRef);
+                    const docRef = window.doc(window.db, 'players', playerId);
+                    const docSnap = await window.getDoc(docRef);
 
                     if (docSnap.exists()) {
                         const firebaseData = docSnap.data();

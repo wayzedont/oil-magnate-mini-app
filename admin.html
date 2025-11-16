@@ -10,6 +10,9 @@
       import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
       import { getFirestore, collection, query, getDocs, doc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
 
+      // Make functions available globally
+      window.collection = collection;
+
       // For Firebase JS SDK v7.20.0 and later, measurementId is optional
       const firebaseConfig = {
         apiKey: "AIzaSyDzN2GdDHsPmsxs-0KyWtfFFIBsdhezFrg",
@@ -233,7 +236,7 @@
                 const playersList = document.getElementById('playersList');
                 playersList.innerHTML = '<div class="loading">Загрузка игроков...</div>';
 
-                const q = query(collection(window.db, 'players'));
+                const q = window.query(window.collection(window.db, 'players'));
                 const querySnapshot = await getDocs(q);
 
                 allPlayers = [];
@@ -335,8 +338,8 @@
                     playerLevelName: 'Новичок'
                 };
 
-                const playerRef = doc(window.db, 'players', playerId);
-                await updateDoc(playerRef, {
+                const playerRef = window.doc(window.db, 'players', playerId);
+                await window.updateDoc(playerRef, {
                     gameData: {
                         state: defaultState,
                         version: '1.2',
