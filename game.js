@@ -1230,7 +1230,7 @@ class Game {
             localStorage.setItem('oilGame', JSON.stringify(saveData));
 
             // Send to Firebase if available
-            if (window.db) {
+            if (window.db && window.doc && window.setDoc) {
                 try {
                     const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
                     const playerName = this.telegramUser ?
@@ -2005,7 +2005,7 @@ class Game {
     async loadGame() {
         try {
             // Try to load from Firebase first
-            if (window.db) {
+            if (window.db && window.doc && window.getDoc) {
                 try {
                     const playerId = this.telegramUser ? this.telegramUser.id.toString() : 'guest';
                     const docRef = window.doc(window.db, 'players', playerId);
