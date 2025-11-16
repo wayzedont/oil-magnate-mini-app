@@ -298,6 +298,314 @@
                             <div class="stat-label">Средние деньги</div>
                         </div>
                     </div>
+                </div>
+            </div>
+        
+            <script src="config.js"></script>
+            <script>
+                // Добавляем методы в AdminPanel класс
+                class AdminPanel {
+                    constructor() {
+                        this.players = [];
+                        this.stats = {};
+                        this.init();
+                    }
+        
+                    init() {
+                        if (window.Telegram && window.Telegram.WebApp) {
+                            const tg = window.Telegram.WebApp;
+                            tg.ready();
+                            tg.expand();
+        
+                            // Проверка прав администратора
+                            this.checkAdminAccess(tg.initDataUnsafe?.user);
+                        }
+        
+                        this.loadDemoStats();
+                    }
+        
+                    checkAdminAccess(user) {
+                        const accessStatus = document.getElementById('accessStatus');
+        
+                        if (!user) {
+                            // Демо режим - разрешаем доступ для тестирования
+                            accessStatus.className = 'demo-mode';
+                            accessStatus.textContent = '🎮 Демо режим (без Telegram)';
+                            console.log('Работа в демо режиме - доступ разрешен');
+                            return;
+                        }
+        
+                        // Здесь должна быть проверка на администратора
+                        // Для демонстрации используем ID пользователя
+                        const adminIds = [123456789, 987654321, 12345678, 832431863]; // Замените на реальные ID администраторов
+        
+                        if (!adminIds.includes(user.id)) {
+                            accessStatus.className = 'access-denied';
+                            accessStatus.textContent = '❌ Доступ запрещен';
+                            alert('У вас нет прав доступа к админ панели');
+                            // Не закрываем окно в демо режиме, показываем сообщение
+                            return;
+                        }
+        
+                        accessStatus.className = 'access-granted';
+                        accessStatus.textContent = '✅ Доступ предоставлен';
+                        console.log('Админ доступ подтвержден для:', user.first_name);
+                    }
+        
+                    loadDemoStats() {
+                        // Имитируем загрузку статистики
+                        this.stats = {
+                            totalPlayers: 5,
+                            activePlayers: 3,
+                            totalMoney: 125000,
+                            totalOil: 2500,
+                            totalLands: 12,
+                            averageMoney: 25000
+                        };
+        
+                        this.displayStats();
+                    }
+        
+                    loadDemoPlayers() {
+                        // Создаем демо игроков
+                        this.players = [
+                            {
+                                id: 'demo_1',
+                                name: 'Игрок 1',
+                                money: 50000,
+                                oil: 1000,
+                                lands: 5,
+                                level: 5,
+                                levelName: 'Инвестор',
+                                lastOnline: Date.now()
+                            },
+                            {
+                                id: 'demo_2',
+                                name: 'Игрок 2',
+                                money: 25000,
+                                oil: 500,
+                                lands: 3,
+                                level: 3,
+                                levelName: 'Работник',
+                                lastOnline: Date.now() - 86400000
+                            },
+                            {
+                                id: 'demo_3',
+                                name: 'Игрок 3',
+                                money: 75000,
+                                oil: 1500,
+                                lands: 8,
+                                level: 7,
+                                levelName: 'Бизнесмен',
+                                lastOnline: Date.now() - 3600000
+                            }
+                        ];
+        
+                        this.displayPlayers();
+                        this.updateStats();
+                    }
+        
+                    resetDemoData() {
+                        if (confirm('Вы уверены, что хотите сбросить демо данные?')) {
+                            this.players = [];
+                            this.stats = {
+                                totalPlayers: 0,
+                                activePlayers: 0,
+                                totalMoney: 0,
+                                totalOil: 0,
+                                totalLands: 0,
+                                averageMoney: 0
+                            };
+                            this.displayPlayers();
+                            this.displayStats();
+                        }
+                    }
+        
+                    generateSampleData() {
+                        // Генерируем случайные тестовые данные
+                        const names = ['Алексей', 'Мария', 'Дмитрий', 'Анна', 'Сергей', 'Елена', 'Иван', 'Ольга'];
+                        const levels = [
+                            { level: 1, name: 'Новичок' },
+                            { level: 2, name: 'Стажер' },
+                            { level: 3, name: 'Работник' },
+                            { level: 4, name: 'Трейдер' },
+                            { level: 5, name: 'Инвестор' },
+                            { level: 6, name: 'Предприниматель' },
+                            { level: 7, name: 'Бизнесмен' },
+                            { level: 8, name: 'Миллионер' }
+                        ];
+        
+                        this.players = [];
+                        for (let i = 0; i < 8; i++) {
+                            const levelInfo = levels[Math.floor(Math.random() * levels.length)];
+                            this.players.push({
+                                id: 'sample_' + i,
+                                name: names[Math.floor(Math.random() * names.length)] + ' ' + (i + 1),
+                                money: Math.floor(Math.random() * 100000) + 10000,
+                                oil: Math.floor(Math.random() * 2000) + 100,
+                                lands: Math.floor(Math.random() * 10) + 1,
+                                level: levelInfo.level,
+                                levelName: levelInfo.name,
+                                lastOnline: Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000) // Случайное время за неделю
+                            });
+                        }
+        
+                        this.displayPlayers();
+                        this.updateStats();
+                    }
+        
+                    updateStats() {
+                        if (this.players.length === 0) {
+                            this.stats = {
+                                totalPlayers: 0,
+                                activePlayers: 0,
+                                totalMoney: 0,
+                                totalOil: 0,
+                                totalLands: 0,
+                                averageMoney: 0
+                            };
+                        } else {
+                            const now = Date.now();
+                            const oneDayAgo = now - 86400000; // 24 часа
+        
+                            this.stats.totalPlayers = this.players.length;
+                            this.stats.activePlayers = this.players.filter(p => p.lastOnline > oneDayAgo).length;
+                            this.stats.totalMoney = this.players.reduce((sum, p) => sum + (p.money || 0), 0);
+                            this.stats.totalOil = this.players.reduce((sum, p) => sum + (p.oil || 0), 0);
+                            this.stats.totalLands = this.players.reduce((sum, p) => sum + (p.lands || 0), 0);
+                            this.stats.averageMoney = Math.floor(this.stats.totalMoney / this.stats.totalPlayers);
+                        }
+        
+                        this.displayStats();
+                    }
+        
+                    displayStats() {
+                        const statsGrid = document.getElementById('statsGrid');
+                        statsGrid.innerHTML = `
+                            <div class="stat-card">
+                                <div class="stat-value">${this.stats.totalPlayers}</div>
+                                <div class="stat-label">Всего игроков</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${this.stats.activePlayers}</div>
+                                <div class="stat-label">Активных игроков</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${this.formatNumber(this.stats.totalMoney)}₽</div>
+                                <div class="stat-label">Общие деньги</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${this.formatNumber(this.stats.totalOil)}</div>
+                                <div class="stat-label">Общая нефть</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${this.stats.totalLands}</div>
+                                <div class="stat-label">Всего участков</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${this.formatNumber(this.stats.averageMoney)}₽</div>
+                                <div class="stat-label">Средние деньги</div>
+                            </div>
+                        `;
+                    }
+        
+                    displayPlayers() {
+                        const playersList = document.getElementById('playersList');
+                        playersList.innerHTML = '';
+        
+                        if (this.players.length === 0) {
+                            playersList.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-gray);">Нет данных об игроках</div>';
+                            return;
+                        }
+        
+                        this.players.forEach(player => {
+                            const playerElement = document.createElement('div');
+                            playerElement.className = 'player-item';
+                            playerElement.innerHTML = `
+                                <div class="player-info">
+                                    <div class="player-name">${player.name} (${player.levelName})</div>
+                                    <div class="player-stats">
+                                        Деньги: ${this.formatNumber(player.money)}₽ |
+                                        Нефть: ${this.formatNumber(player.oil)} |
+                                        Участки: ${player.lands} |
+                                        Уровень: ${player.level} |
+                                        Последний онлайн: ${this.formatDate(player.lastOnline)}
+                                    </div>
+                                </div>
+                                <div class="player-actions">
+                                    <button class="player-action-btn reset" onclick="adminPanel.resetPlayer('${player.id}')">
+                                        Сбросить
+                                    </button>
+                                </div>
+                            `;
+                            playersList.appendChild(playerElement);
+                        });
+                    }
+        
+                    resetPlayer(playerId) {
+                        if (confirm(`Вы уверены, что хотите сбросить прогресс игрока ${playerId}?`)) {
+                            // Сбрасываем данные игрока из демо массива
+                            this.players = this.players.filter(p => p.id !== playerId);
+                            this.displayPlayers();
+                            this.updateStats();
+                        }
+                    }
+        
+                    // Остальные методы остаются для совместимости с реальным режимом
+                    loadStats() { this.loadDemoStats(); }
+                    loadPlayers() { this.loadDemoPlayers(); }
+                    resetAllPlayers() { this.resetDemoData(); }
+                    exportPlayersData() { alert('Экспорт демо данных доступен только в реальном режиме'); }
+                    editConfig() { alert('Редактирование конфигурации доступно только в реальном режиме'); }
+                    viewLogs() { alert('Просмотр логов доступен только в реальном режиме'); }
+        
+                    formatNumber(num) {
+                        if (num >= 1000000) {
+                            return (num / 1000000).toFixed(1) + 'M';
+                        } else if (num >= 1000) {
+                            return (num / 1000).toFixed(1) + 'K';
+                        }
+                        return Math.floor(num).toString();
+                    }
+        
+                    formatDate(timestamp) {
+                        const date = new Date(timestamp);
+                        const now = new Date();
+                        const diff = now - date;
+        
+                        if (diff < 60000) return 'только что';
+                        if (diff < 3600000) return `${Math.floor(diff / 60000)} мин назад`;
+                        if (diff < 86400000) return `${Math.floor(diff / 3600000)} ч назад`;
+        
+                        return date.toLocaleDateString();
+                    }
+                }
+        
+                // Инициализация админ панели
+                let adminPanel;
+                document.addEventListener('DOMContentLoaded', () => {
+                    adminPanel = new AdminPanel();
+                });
+        
+                // Демо функции
+                function loadDemoStats() {
+                    adminPanel.loadDemoStats();
+                }
+        
+                function loadDemoPlayers() {
+                    adminPanel.loadDemoPlayers();
+                }
+        
+                function resetDemoData() {
+                    adminPanel.resetDemoData();
+                }
+        
+                function generateSampleData() {
+                    adminPanel.generateSampleData();
+                }
+            </script>
+        </body>
+        </html>
                     <button class="refresh-btn" onclick="loadDemoStats()">🔄 Обновить статистику</button>
                 </div>
 
