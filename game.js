@@ -88,14 +88,23 @@ class Game {
         document.getElementById('closeEventModal').addEventListener('click', () => this.closeEventModal());
 
         // Own Company
-        document.getElementById('createOwnCompany').addEventListener('click', () => this.createOwnCompany());
-        document.getElementById('autoBuyEnabled').addEventListener('change', (e) => {
-            if (this.state.ownCompany) {
-                this.state.ownCompany.autoBuyEnabled = e.target.checked;
-                this.saveGame();
-            }
-        });
-        document.getElementById('setBuybackMoney').addEventListener('click', () => this.setBuybackMoney());
+        const createCompanyBtn = document.getElementById('createOwnCompany');
+        if (createCompanyBtn) {
+            createCompanyBtn.addEventListener('click', () => this.createOwnCompany());
+        }
+        const autoBuyCheckbox = document.getElementById('autoBuyEnabled');
+        if (autoBuyCheckbox) {
+            autoBuyCheckbox.addEventListener('change', (e) => {
+                if (this.state.ownCompany) {
+                    this.state.ownCompany.autoBuyEnabled = e.target.checked;
+                    this.saveGame();
+                }
+            });
+        }
+        const setBuybackBtn = document.getElementById('setBuybackMoney');
+        if (setBuybackBtn) {
+            setBuybackBtn.addEventListener('click', () => this.setBuybackMoney());
+        }
         
         document.getElementById('closeLandModal').addEventListener('click', () => this.closeLandModal());
         document.getElementById('closeProfileModal').addEventListener('click', () => this.closeProfileModal());
@@ -120,18 +129,21 @@ class Game {
         if (this.bonusActive) {
             money *= CONFIG.bonusCircle.multiplier;
         }
-        
+
         this.state.money += money;
-        
+
         this.showFloatingNumber(money, e.clientX, e.clientY);
-        
+
         const button = e.currentTarget;
         button.style.animation = 'none';
         setTimeout(() => {
             button.style.animation = '';
         }, 10);
-        
+
         this.updateUI();
+
+        // Check achievements immediately after click
+        setTimeout(() => this.checkAchievements(), 100);
     }
 
     handleBonusClick(e) {
@@ -552,10 +564,17 @@ class Game {
             buyButton.style.display = 'block';
             buyButton.disabled = this.state.money < land.price;
             rigsSection.style.display = 'none';
-            
+
+            // Показываем информацию о том, что участок занимает слот
+            const ownedLands = this.state.lands.filter(l => l.owned);
+            const slotWarning = document.createElement('div');
+            slotWarning.className = 'slot-warning';
+            slotWarning.innerHTML = `<small style="color: var(--text-gray);">⚠️ Участок займет 1 слот (${ownedLands.length}/${this.state.rigSlots} занято)</small>`;
+            buyButton.parentNode.insertBefore(slotWarning, buyButton.nextSibling);
+
             const analyzeCost = Math.floor(land.price * CONFIG.landAnalysis.costPercentage);
             const isAnalyzed = this.state.analyzedLands.includes(land.id);
-            
+
             if (isAnalyzed) {
                 analyzeButton.style.display = 'none';
             } else {
@@ -617,6 +636,9 @@ class Game {
             this.renderLands();
             this.openLandModal(land.id);
             this.saveGame();
+
+            // Check achievements after buying land
+            setTimeout(() => this.checkAchievements(), 100);
         }
     }
 
@@ -816,11 +838,11 @@ class Game {
     upgradeClickPower() {
         const level = this.state.clickSkillLevel;
         const cost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, level - 1));
-        
+
         if (this.state.money >= cost) {
             this.state.money -= cost;
             this.state.clickSkillLevel++;
-            
+
             // Новая формула прогрессии:
             // Уровень 1: 1₽
             // Уровень 2: 3₽ (+2)
@@ -831,10 +853,10 @@ class Game {
             // Уровень 7: 19₽ (+4)
             // Уровень 8: 24₽ (+5)
             // Далее прирост замедляется
-            
+
             const newLevel = this.state.clickSkillLevel;
             let power;
-            
+
             if (newLevel === 1) {
                 power = 1;
             } else if (newLevel <= 3) {
@@ -849,11 +871,14 @@ class Game {
                 // После 10 уровня - еще медленнее
                 power = 34 + (newLevel - 10) * 3;
             }
-            
+
             this.state.clickPower = power;
-            
+
             this.updateUI();
             this.saveGame();
+
+            // Check achievements after upgrade
+            setTimeout(() => this.checkAchievements(), 100);
         }
     }
 
@@ -882,10 +907,21 @@ class Game {
 
     resetProgress() {
        if (confirm('Вы уверены, что хотите сбросить весь прогресс? Это действие нельзя отменить!')) {
-           localStorage.removeItem('oilGame');
-           location.reload();
-       }
-   }
+            try {
+                localStorage.removeItem('oilGame');
+                // Also clear any admin data for this user
+                if (this.telegramUser) {
+                    localStorage.removeItem('admin_player_data_' + this.telegramUser.id);
+                } else {
+                    localStorage.removeItem('admin_player_data_guest');
+                }
+                location.reload();
+            } catch (e) {
+                console.error('Error resetting progress:', e);
+                alert('Ошибка при сбросе прогресса. Попробуйте перезагрузить страницу вручную.');
+            }
+        }
+    }
 
    resetAllPlayers() {
        if (confirm('Вы уверены, что хотите сбросить прогресс ВСЕХ игроков? Это действие нельзя отменить!')) {
@@ -1102,7 +1138,24 @@ class Game {
         document.getElementById('oilExtractionRate').textContent = extractionRate.toFixed(2);
 
         document.getElementById('clickSkillLevel').textContent = this.state.clickSkillLevel;
-        document.getElementById('clickSkillBonus').textContent = this.state.clickPower;
+
+        // Показываем следующую силу клика вместо текущей
+        const nextLevel = this.state.clickSkillLevel + 1;
+        let nextPower;
+        if (nextLevel === 1) {
+            nextPower = 1;
+        } else if (nextLevel <= 3) {
+            nextPower = 1 + (nextLevel - 1) * 2; // 1, 3, 5
+        } else if (nextLevel <= 5) {
+            nextPower = 5 + (nextLevel - 3) * 3; // 8, 11
+        } else if (nextLevel <= 7) {
+            nextPower = 11 + (nextLevel - 5) * 4; // 15, 19
+        } else if (nextLevel <= 10) {
+            nextPower = 19 + (nextLevel - 7) * 5; // 24, 29, 34
+        } else {
+            nextPower = 34 + (nextLevel - 10) * 3;
+        }
+        document.getElementById('clickSkillBonus').textContent = nextPower;
 
         const clickCost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, this.state.clickSkillLevel - 1));
         document.getElementById('clickSkillCost').textContent = this.formatNumber(clickCost);
@@ -1279,16 +1332,24 @@ class Game {
         document.body.appendChild(modal);
 
         // Add event listeners to close the modal
-        document.getElementById('closeOfflineModal').addEventListener('click', () => modal.remove());
-        document.getElementById('closeOfflineBtn').addEventListener('click', () => modal.remove());
+        const closeOfflineModalBtn = document.getElementById('closeOfflineModal');
+        if (closeOfflineModalBtn) {
+            closeOfflineModalBtn.addEventListener('click', () => modal.remove());
+        }
+        const closeOfflineBtn = document.getElementById('closeOfflineBtn');
+        if (closeOfflineBtn) {
+            closeOfflineBtn.addEventListener('click', () => modal.remove());
+        }
     }
 
     scheduleEvent() {
         if (!CONFIG.events.enabled) return;
 
+        // Не показывать событие сразу при запуске, только через время игры
+        // Запланировать первое событие через случайный интервал
         setTimeout(() => {
             this.triggerRandomEvent();
-            this.scheduleEvent();
+            this.scheduleEvent(); // Запланировать следующее
         }, CONFIG.events.interval + Math.random() * CONFIG.events.interval * 0.5);
     }
 
@@ -1381,23 +1442,6 @@ class Game {
             }
         });
 
-        // Update buyback prices
-        const marketPrice = this.calculateAverageOilPrice();
-        company.currentBuybackPrice = Math.max(CONFIG.ownCompany.buyback.minPrice,
-            Math.min(CONFIG.ownCompany.buyback.maxPrice, marketPrice * (0.8 + Math.random() * 0.4)));
-
-        // Auto-buy oil if enabled
-        if (company.autoBuyEnabled && company.buybackMoney > 0) {
-            const canBuy = Math.min(
-                Math.floor(company.buybackMoney / company.currentBuybackPrice),
-                CONFIG.ownCompany.buyback.baseVolume
-            );
-            if (canBuy > 0) {
-                company.buybackMoney -= canBuy * company.currentBuybackPrice;
-                this.state.availableOil += canBuy;
-            }
-        }
-
         this.updateOwnCompanyUI();
     }
 
@@ -1418,7 +1462,8 @@ class Game {
                 ...p,
                 quantity: 0,
                 inProduction: false,
-                productionEndTime: 0
+                productionEndTime: 0,
+                upgradeLevel: 0
             })),
             buybackMoney: 0,
             autoBuyEnabled: false,
@@ -1474,6 +1519,43 @@ class Game {
         this.saveGame();
     }
 
+    upgradeProduct(productId) {
+        if (!this.state.ownCompany) return;
+
+        const product = this.state.ownCompany.products.find(p => p.id === productId);
+        if (!product) return;
+
+        // Определяем уровень улучшения (от 0 до 4)
+        const currentLevel = product.upgradeLevel || 0;
+        if (currentLevel >= 4) {
+            alert('Максимальный уровень улучшения достигнут!');
+            return;
+        }
+
+        // Стоимость улучшения растет экспоненциально
+        const upgradeCost = Math.floor(5000 * Math.pow(2, currentLevel));
+
+        if (this.state.money < upgradeCost) {
+            alert(`Недостаточно денег! Нужно ${this.formatNumber(upgradeCost)}₽`);
+            return;
+        }
+
+        // Применяем улучшение
+        this.state.money -= upgradeCost;
+        product.upgradeLevel = (product.upgradeLevel || 0) + 1;
+
+        // Улучшаем характеристики продукта
+        const upgradeMultiplier = 1 + (currentLevel + 1) * 0.15; // +15% за уровень
+        product.basePrice = Math.floor(product.basePrice * upgradeMultiplier);
+        product.oilRequired = Math.max(1, Math.floor(product.oilRequired * 0.95)); // -5% потребления нефти
+        product.productionTime = Math.max(1000, Math.floor(product.productionTime * 0.9)); // -10% времени производства
+
+        this.showFloatingNotification(`🛢️ ${product.name} улучшен до уровня ${product.upgradeLevel + 1}!`, 3000);
+        this.updateOwnCompanyUI();
+        this.updateUI();
+        this.saveGame();
+    }
+
     sellProduct(productId) {
         if (!this.state.ownCompany) return;
 
@@ -1518,7 +1600,6 @@ class Game {
 
         const company = this.state.ownCompany;
         const productsList = document.getElementById('productsList');
-        const buybackPriceElement = document.getElementById('currentBuybackPrice');
 
         // Update products
         productsList.innerHTML = company.products.map(product => `
@@ -1528,6 +1609,7 @@ class Game {
                     <span class="product-quantity">Кол-во: ${product.quantity}</span>
                 </div>
                 <div class="product-info">
+                    <div>Уровень: ${product.upgradeLevel || 0}/5</div>
                     <div>Требуется: ${product.oilRequired} нефти + ${this.formatNumber(product.moneyRequired)}₽</div>
                     <div>Время производства: ${Math.floor(product.productionTime / 1000)} сек</div>
                     <div>Цена продажи: ~${this.formatNumber(product.basePrice)}₽</div>
@@ -1539,14 +1621,12 @@ class Game {
                     <button class="btn-sell" onclick="game.sellProduct('${product.id}')" ${product.quantity <= 0 ? 'disabled' : ''}>
                         Продать
                     </button>
+                    <button class="btn-upgrade" onclick="game.upgradeProduct('${product.id}')" style="font-size: 12px;">
+                        Улучшить (${this.formatNumber(Math.floor(5000 * Math.pow(2, product.upgradeLevel || 0)))}₽)
+                    </button>
                 </div>
             </div>
         `).join('');
-
-        // Update buyback
-        document.getElementById('autoBuyEnabled').checked = company.autoBuyEnabled;
-        buybackPriceElement.textContent = `Текущая цена: ${this.formatNumber(Math.floor(company.currentBuybackPrice))}₽`;
-        document.getElementById('buybackMoneyAmount').placeholder = `Доступно: ${this.formatNumber(company.buybackMoney)}₽`;
     }
 
     updatePlayerLevel() {
@@ -1761,26 +1841,29 @@ class Game {
 
         let statusMessage = '';
         if (isOnCooldown) {
-            statusMessage = `Кулдаун: ${cooldownRemaining} сек`;
+            statusMessage = `Кулдаун ${cooldownRemaining} сек`;
         } else if (!companyCanBuy) {
-            statusMessage = 'Компания не покупает';
+            statusMessage = 'Не покупает';
         } else if (!hasEnoughOil) {
-            statusMessage = 'Недостаточно нефти';
+            statusMessage = 'Мало нефти';
         } else {
             statusMessage = 'Можно продать:';
         }
 
         // Информация о контракте
         const contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
-        const nextContractLevel = contractLevel < company.contractLevels.length ? contractLevel + 1 : null;
-        const nextContractCost = nextContractLevel ? company.contractLevels.find(l => l.level === nextContractLevel).cost : null;
+        const configCompany = CONFIG.companies.list.find(c => c.id === company.id);
+        const nextContractLevel = contractLevel < configCompany.contractLevels.length ? contractLevel + 1 : null;
+        const nextContractCost = nextContractLevel ? configCompany.contractLevels.find(l => l.level === nextContractLevel).cost : null;
+        const nextContractMultiplier = nextContractLevel ? configCompany.contractLevels.find(l => l.level === nextContractLevel).maxDemandMultiplier : null;
 
         let contractHTML = `
             <div class="contract-info">
-                <span>Уровень контракта: ${contractLevel}</span>
+                <span>Уровень: ${contractLevel}</span>
                 ${nextContractCost ? `<button class="btn-upgrade-contract" onclick="game.upgradeContract('${company.id}')">
                     Улучшить (${this.formatNumber(nextContractCost)}₽)
-                </button>` : '<span>Максимальный уровень</span>'}
+                    ${nextContractMultiplier ? `<br><small>+${Math.round((nextContractMultiplier - 1) * 100)}% спроса</small>` : ''}
+                </button>` : '<span>Макс уровень</span>'}
             </div>
         `;
 
@@ -1875,6 +1958,9 @@ class Game {
         this.updateUI();
         this.renderCompanies();
         this.saveGame();
+
+        // Check achievements after selling oil
+        setTimeout(() => this.checkAchievements(), 100);
 
         // Send game results to Telegram bot
         this.sendGameResultsToBot({

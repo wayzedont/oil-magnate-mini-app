@@ -124,7 +124,7 @@
                     <h2>Моя компания</h2>
                     <button class="btn-generate" id="createOwnCompany" style="display: none;">
                         🏭 Создать компанию
-                        <span style="font-size: 11px; display: block; margin-top: 3px;">50,000₽</span>
+                        <span style="font-size: 11px; display: block; margin-top: 3px; word-break: break-word;">25,000₽</span>
                     </button>
                 </div>
                 <div id="companyPlaceholder" class="no-company-message">
@@ -140,17 +140,10 @@
                         <div id="productsList"></div>
                     </div>
                     <div class="buyback-section">
-                        <h3>Закупка нефти</h3>
-                        <div class="buyback-controls">
-                            <label>
-                                <input type="checkbox" id="autoBuyEnabled"> Автоматическая закупка
-                            </label>
-                            <div class="buyback-money">
-                                <span>Бюджет: </span>
-                                <input type="number" id="buybackMoneyAmount" min="0" placeholder="0">
-                                <button id="setBuybackMoney">Установить</button>
-                            </div>
-                            <div id="currentBuybackPrice">Текущая цена: --₽</div>
+                        <h3>Управление компанией</h3>
+                        <div class="company-info-card">
+                            <p>Улучшайте производство для получения большей прибыли!</p>
+                            <p>Каждое улучшение повышает цену продажи и снижает затраты.</p>
                         </div>
                     </div>
                 </div>

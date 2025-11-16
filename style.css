@@ -34,6 +34,7 @@ body {
     margin: 0 auto;
     padding-bottom: 20px;
     overflow-x: hidden;
+    overflow-y: auto;
 }
 
 /* Header */
@@ -106,7 +107,7 @@ body {
     padding: 8px;
     gap: 8px;
     position: sticky;
-    top: 60px;
+    top: 86px;
     z-index: 90;
     overflow-x: hidden;
     justify-content: space-around;
@@ -139,6 +140,8 @@ body {
     padding: 20px;
     animation: fadeIn 0.3s;
     overflow-x: hidden;
+    overflow-y: auto;
+    max-height: calc(100vh - 200px);
 }
 
 .tab-content.active {
@@ -154,8 +157,8 @@ body {
 .work-screen {
     text-align: center;
     position: relative;
-    min-height: 600px;
-    overflow-x: hidden;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .click-stats {
@@ -512,7 +515,7 @@ body {
 
 .company-sell-section {
     display: flex;
-    gap: 10px;
+    gap: 5px;
     align-items: center;
     flex-wrap: wrap;
 }
@@ -713,7 +716,7 @@ body {
 .lands-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 15px;
+    gap: 10px;
 }
 
 .land-card {
@@ -936,6 +939,9 @@ body {
     background: var(--bg-darker);
     border-radius: 6px;
     font-size: 12px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
 }
 
 .btn-upgrade-contract {
@@ -1043,19 +1049,24 @@ body {
 
 .product-actions {
     display: flex;
-    gap: 10px;
+    gap: 5px;
     justify-content: space-between;
+    flex-wrap: wrap;
 }
 
-.buyback-controls {
+.company-info-card {
     background: var(--bg-card);
     border: 2px solid var(--border);
     border-radius: 12px;
     padding: 15px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    text-align: center;
     overflow-x: hidden;
+}
+
+.company-info-card p {
+    margin: 8px 0;
+    font-size: 14px;
+    color: var(--text-gray);
 }
 
 .buyback-controls label {
@@ -1092,8 +1103,9 @@ body {
     height: 100%;
     background: rgba(0, 0, 0, 0.8);
     z-index: 200;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    padding: 20px;
 }
 
 .modal.active {
@@ -1106,11 +1118,12 @@ body {
     border-radius: 16px;
     padding: 25px;
     max-width: 90%;
-    max-height: 80vh;
+    max-height: calc(100vh - 40px);
     overflow-y: auto;
     position: relative;
     border: 2px solid var(--border);
     overflow-x: hidden;
+    margin-top: 40px;
 }
 
 .modal-close {
@@ -1211,6 +1224,11 @@ body {
     color: var(--text-gray);
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+.slot-warning {
+    margin-top: 8px;
+    text-align: center;
 }
 
 .rigs-section {
@@ -1356,7 +1374,7 @@ body {
     }
 
     .lands-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .nav-tabs {
@@ -1379,7 +1397,7 @@ body {
 
     .company-sell-section {
         flex-direction: column;
-        gap: 8px;
+        gap: 5px;
     }
 
     .sell-input {
@@ -1394,5 +1412,19 @@ body {
     .btn-sell {
         width: 100%;
         padding: 12px;
+    }
+
+    .modal-content {
+        padding: 15px;
+        max-height: calc(100vh - 60px);
+    }
+
+    .profile-stats {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .stat-value {
+        font-size: 18px;
     }
 }

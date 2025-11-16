@@ -111,11 +111,11 @@ const CONFIG = {
                 possibleMinBuy: [1, 30, 80, 300],
                 priceMultipliers: [0.85, 1.0, 1.15, 1.4],
                 contractLevels: [
-                    { level: 1, maxDemandMultiplier: 1.0, cost: 15000 },
-                    { level: 2, maxDemandMultiplier: 1.4, cost: 75000 },
-                    { level: 3, maxDemandMultiplier: 1.8, cost: 300000 },
-                    { level: 4, maxDemandMultiplier: 2.2, cost: 750000 },
-                    { level: 5, maxDemandMultiplier: 2.6, cost: 1500000 }
+                    { level: 1, maxDemandMultiplier: 1.0, cost: 5000 },
+                    { level: 2, maxDemandMultiplier: 1.5, cost: 15000 },
+                    { level: 3, maxDemandMultiplier: 2.0, cost: 35000 },
+                    { level: 4, maxDemandMultiplier: 2.5, cost: 80000 },
+                    { level: 5, maxDemandMultiplier: 3.0, cost: 150000 }
                 ]
             },
             {
@@ -128,11 +128,11 @@ const CONFIG = {
                 possibleMinBuy: [1, 50, 120, 600],
                 priceMultipliers: [0.8, 1.0, 1.2, 1.6],
                 contractLevels: [
-                    { level: 1, maxDemandMultiplier: 1.0, cost: 20000 },
-                    { level: 2, maxDemandMultiplier: 1.4, cost: 100000 },
-                    { level: 3, maxDemandMultiplier: 1.8, cost: 400000 },
-                    { level: 4, maxDemandMultiplier: 2.2, cost: 1000000 },
-                    { level: 5, maxDemandMultiplier: 2.6, cost: 2000000 }
+                    { level: 1, maxDemandMultiplier: 1.0, cost: 8000 },
+                    { level: 2, maxDemandMultiplier: 1.5, cost: 20000 },
+                    { level: 3, maxDemandMultiplier: 2.0, cost: 50000 },
+                    { level: 4, maxDemandMultiplier: 2.5, cost: 100000 },
+                    { level: 5, maxDemandMultiplier: 3.0, cost: 200000 }
                 ]
             },
             {
@@ -145,11 +145,11 @@ const CONFIG = {
                 possibleMinBuy: [5, 60, 120, 300],
                 priceMultipliers: [0.8, 1.0, 1.2, 1.5],
                 contractLevels: [
-                    { level: 1, maxDemandMultiplier: 1.0, cost: 18000 },
-                    { level: 2, maxDemandMultiplier: 1.4, cost: 90000 },
-                    { level: 3, maxDemandMultiplier: 1.8, cost: 360000 },
-                    { level: 4, maxDemandMultiplier: 2.2, cost: 900000 },
-                    { level: 5, maxDemandMultiplier: 2.6, cost: 1800000 }
+                    { level: 1, maxDemandMultiplier: 1.0, cost: 7000 },
+                    { level: 2, maxDemandMultiplier: 1.5, cost: 18000 },
+                    { level: 3, maxDemandMultiplier: 2.0, cost: 40000 },
+                    { level: 4, maxDemandMultiplier: 2.5, cost: 90000 },
+                    { level: 5, maxDemandMultiplier: 3.0, cost: 170000 }
                 ]
             },
             {
@@ -162,11 +162,11 @@ const CONFIG = {
                 possibleMinBuy: [1, 25, 70, 350],
                 priceMultipliers: [0.9, 1.0, 1.1, 1.3],
                 contractLevels: [
-                    { level: 1, maxDemandMultiplier: 1.0, cost: 12000 },
-                    { level: 2, maxDemandMultiplier: 1.4, cost: 60000 },
-                    { level: 3, maxDemandMultiplier: 1.8, cost: 240000 },
-                    { level: 4, maxDemandMultiplier: 2.2, cost: 600000 },
-                    { level: 5, maxDemandMultiplier: 2.6, cost: 1200000 }
+                    { level: 1, maxDemandMultiplier: 1.0, cost: 4000 },
+                    { level: 2, maxDemandMultiplier: 1.5, cost: 12000 },
+                    { level: 3, maxDemandMultiplier: 2.0, cost: 30000 },
+                    { level: 4, maxDemandMultiplier: 2.5, cost: 70000 },
+                    { level: 5, maxDemandMultiplier: 3.0, cost: 130000 }
                 ]
             }
         ],
