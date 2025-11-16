@@ -267,3 +267,52 @@
                 </ol>
                 <p><strong>Теперь админ панель будет доступна через кнопку "Menu" в вашем боте!</strong></p>
             </div>
+
+            <div id="demoContent">
+                <!-- Контент демо режима -->
+                <div class="admin-section">
+                    <h3>📊 Демо статистика</h3>
+                    <div class="stats-grid" id="statsGrid">
+                        <div class="stat-card">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Всего игроков</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Активных игроков</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">0₽</div>
+                            <div class="stat-label">Общие деньги</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Общая нефть</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Всего участков</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">0₽</div>
+                            <div class="stat-label">Средние деньги</div>
+                        </div>
+                    </div>
+                    <button class="refresh-btn" onclick="loadDemoStats()">🔄 Обновить статистику</button>
+                </div>
+
+                <div class="admin-section">
+                    <h3>👥 Демо управление игроками</h3>
+                    <div class="admin-actions">
+                        <button class="admin-btn" onclick="loadDemoPlayers()">📋 Загрузить демо игроков</button>
+                        <button class="admin-btn danger" onclick="resetDemoData()">🚨 Сбросить демо данные</button>
+                        <button class="admin-btn" onclick="generateSampleData()">🎲 Сгенерировать тестовые данные</button>
+                    </div>
+
+                    <div class="players-list" id="playersList">
+                        <div style="text-align: center; padding: 20px; color: var(--text-gray);">
+                            Нажмите "Загрузить демо игроков" для просмотра тестовых данных
+                        </div>
+                    </div>
+                </div>
+            </div>
