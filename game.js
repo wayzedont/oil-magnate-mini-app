@@ -29,8 +29,8 @@ class Game {
     }
 
     async init() {
-        await this.loadGame();
         this.initTelegram();
+        await this.loadGame();
         this.initCompanies();
         this.generateLands();
         this.setupEventListeners();
@@ -64,9 +64,15 @@ class Game {
                         if (firebaseData && firebaseData.gameData) {
                             console.log('Loading game from Firebase...');
                             const saveData = firebaseData.gameData;
-                            this.state = saveData.state;
-                            this.migrateSaveData();
-                            return;
+                            // Validate save data
+                            if (this.validateSaveData(saveData)) {
+                                this.state = saveData.state;
+                                this.migrateSaveData();
+                                console.log('Game loaded from Firebase successfully');
+                                return;
+                            } else {
+                                console.log('Invalid Firebase save data, trying localStorage...');
+                            }
                         }
                     }
                 } catch (firebaseError) {
@@ -79,8 +85,13 @@ class Game {
             if (saved) {
                 console.log('Loading game from localStorage...');
                 const saveData = JSON.parse(saved);
-                this.state = saveData.state;
-                this.migrateSaveData();
+                if (this.validateSaveData(saveData)) {
+                    this.state = saveData.state;
+                    this.migrateSaveData();
+                    console.log('Game loaded from localStorage successfully');
+                } else {
+                    console.log('Invalid localStorage save data, starting fresh');
+                }
             } else {
                 console.log('No saved game found, starting fresh');
             }
@@ -88,6 +99,21 @@ class Game {
             console.error('Failed to load game:', e);
             // Continue with default state
         }
+    }
+
+    validateSaveData(saveData) {
+        // Basic validation to ensure save data is not corrupted
+        if (!saveData || !saveData.state) return false;
+
+        const state = saveData.state;
+
+        // Check for required fields and reasonable values
+        if (typeof state.money !== 'number' || state.money < 0 || state.money > 1000000000) return false;
+        if (typeof state.availableOil !== 'number' || state.availableOil < -1000 || state.availableOil > 1000000000) return false;
+        if (!Array.isArray(state.lands)) return false;
+        if (!Array.isArray(state.companies)) return false;
+
+        return true;
     }
 
     initTelegram() {
