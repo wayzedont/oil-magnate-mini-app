@@ -141,10 +141,22 @@ body {
     animation: fadeIn 0.3s;
     overflow-x: hidden;
     overflow-y: auto;
-    max-height: calc(100vh - 200px);
+    max-height: calc(100vh - 130px);
 }
 
 .tab-content.active {
+    display: block;
+}
+
+/* Вкладка "Работа" - без прокрутки */
+.tab-content[data-tab="work"] {
+    overflow: hidden !important;
+    padding: 0;
+    height: calc(100vh - 130px); /* Высота экрана минус header (~82px) и nav (~48px) */
+    position: relative;
+}
+
+.tab-content[data-tab="work"].active {
     display: block;
 }
 
@@ -157,8 +169,12 @@ body {
 .work-screen {
     text-align: center;
     position: relative;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 20px;
 }
 
 .click-stats {
@@ -1122,12 +1138,12 @@ body {
     border-radius: 16px;
     padding: 25px;
     max-width: 90%;
-    max-height: calc(100vh - 40px);
+    max-height: calc(100vh - 80px);
     overflow-y: auto;
     position: relative;
     border: 2px solid var(--border);
     overflow-x: hidden;
-    margin-top: 40px;
+    margin-top: 20px;
 }
 
 .modal-close {
@@ -1430,6 +1446,14 @@ body {
 
     .stat-value {
         font-size: 18px;
+    }
+    
+    .tab-content[data-tab="work"] {
+        height: calc(100vh - 110px); /* Header меньше на мобильных */
+    }
+    
+    .tab-content {
+        max-height: calc(100vh - 110px);
     }
 }
 

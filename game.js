@@ -18,7 +18,11 @@ class Game {
             events: [],
             priceMultiplier: 1.0,
             priceMultiplierEndTime: 0,
-            totalOilSales: 0
+            totalOilSales: 0,
+            // Новая система замен участков
+            landRefreshes: 3, // Текущее количество замен
+            maxLandRefreshes: 3, // Максимум замен
+            lastRefreshTime: Date.now() // Время последней замены
         };
 
         this.selectedLandId = null;
@@ -33,7 +37,14 @@ class Game {
         this.initTelegram();
         await this.loadGame();
         this.initCompanies();
-        this.generateLands();
+        
+        // Генерируем участки только если их нет (новая игра)
+        const availableLands = this.state.lands.filter(land => !land.owned);
+        if (availableLands.length === 0) {
+            // Для первой генерации НЕ тратим замену
+            this.generateLandsFirstTime();
+        }
+        
         this.setupEventListeners();
         this.startGameLoop();
         // Запустить бонусный кружок через некоторое время после загрузки
@@ -50,6 +61,10 @@ class Game {
 
         // Обработчик закрытия страницы для сохранения времени выхода
         this.setupBeforeUnloadHandler();
+
+        // Блокируем прокрутку по умолчанию (так как открывается вкладка "Работа")
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
 
         this.updateUI();
     }
@@ -127,7 +142,9 @@ class Game {
                 const saveData = JSON.parse(saved);
                 if (this.validateSaveData(saveData)) {
                     this.state = saveData.state;
+                    console.log('Loaded state - landRefreshes:', this.state.landRefreshes, 'lastRefreshTime:', new Date(this.state.lastRefreshTime || 0).toLocaleTimeString());
                     this.migrateSaveData();
+                    console.log('After migration - landRefreshes:', this.state.landRefreshes, 'lastRefreshTime:', new Date(this.state.lastRefreshTime || 0).toLocaleTimeString());
                     console.log('Game loaded from localStorage successfully');
                 } else {
                     console.log('Invalid localStorage save data, starting fresh');
@@ -345,6 +362,15 @@ class Game {
             content.classList.toggle('active', content.dataset.tab === tabName);
         });
         
+        // Блокируем прокрутку на вкладке "Работа"
+        if (tabName === 'work') {
+            document.body.style.overflow = 'hidden';
+            document.documentElement.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = 'auto';
+            document.documentElement.style.overflow = 'auto';
+        }
+        
         if (tabName === 'sell') {
             this.renderCompanies();
         } else if (tabName === 'myLands') {
@@ -367,13 +393,9 @@ class Game {
         document.getElementById('profileModal').classList.remove('active');
     }
 
-    generateLands() {
-        if (!this.canGenerateLands()) {
-            return;
-        }
-
-        const timestamp = Date.now();
-        this.state.generationHistory.push(timestamp);
+    // Генерация участков при первом запуске (БЕЗ траты замены)
+    generateLandsFirstTime() {
+        console.log('Generating lands for first time (no refresh cost)');
         
         // Keep only owned lands
         const ownedLands = this.state.lands.filter(land => land.owned);
@@ -402,21 +424,98 @@ class Game {
         this.saveGame();
     }
 
-    canGenerateLands() {
-        const now = Date.now();
-        const cooldownTime = CONFIG.generation.cooldownTime;
+    generateLands() {
+        // Восстанавливаем замены перед проверкой
+        this.updateLandRefreshes();
         
-        // Ensure generationHistory exists
-        if (!this.state.generationHistory) {
-            this.state.generationHistory = [];
+        // Проверяем есть ли доступные замены
+        if (this.state.landRefreshes <= 0) {
+            return; // Просто выходим, кнопка уже заблокирована
         }
         
-        // Clean up old generation timestamps
-        this.state.generationHistory = this.state.generationHistory.filter(
-            timestamp => now - timestamp < cooldownTime
-        );
+        console.log('Using land refresh:', this.state.landRefreshes, '-> ', this.state.landRefreshes - 1);
         
-        return this.state.generationHistory.length < CONFIG.generation.maxAttempts;
+        // Используем одну замену
+        this.state.landRefreshes--;
+        this.state.lastRefreshTime = Date.now();
+        
+        // Keep only owned lands
+        const ownedLands = this.state.lands.filter(land => land.owned);
+        
+        // Найти максимальный ID среди всех земель
+        let maxId = 0;
+        if (this.state.lands.length > 0) {
+            maxId = Math.max(...this.state.lands.map(land => land.id));
+        }
+        
+        // Сбросить список участков - оставить только купленные
+        this.state.lands = [...ownedLands];
+        
+        // Очистить список анализов при генерации новых участков
+        this.state.analyzedLands = [];
+        
+        // Generate new lands with unique IDs
+        for (let i = 0; i < CONFIG.lands.totalCount; i++) {
+            maxId++;
+            const land = this.generateRandomLand(maxId);
+            this.state.lands.push(land);
+        }
+        
+        this.renderLands();
+        this.updateGenerationButton();
+        this.saveGame();
+    }
+
+    // Обновляет количество замен на основе прошедшего времени
+    updateLandRefreshes() {
+        // Проверяем корректность данных
+        if (!this.state.lastRefreshTime || typeof this.state.lastRefreshTime !== 'number') {
+            this.state.lastRefreshTime = Date.now();
+            return;
+        }
+        
+        // Если уже максимум замен, не нужно ничего делать
+        if (this.state.landRefreshes >= this.state.maxLandRefreshes) {
+            return;
+        }
+        
+        const now = Date.now();
+        const refreshTime = 5 * 60 * 1000; // 5 минут в миллисекундах
+        const timePassed = now - this.state.lastRefreshTime;
+        
+        // Защита от некорректного времени (в будущем или слишком далеко в прошлом)
+        if (timePassed < 0 || timePassed > 365 * 24 * 60 * 60 * 1000) {
+            console.warn('Invalid time passed, resetting lastRefreshTime');
+            this.state.lastRefreshTime = now;
+            return;
+        }
+        
+        // Сколько замен восстановилось
+        const refreshesGained = Math.floor(timePassed / refreshTime);
+        
+        if (refreshesGained > 0) {
+            this.state.landRefreshes = Math.min(
+                this.state.maxLandRefreshes,
+                this.state.landRefreshes + refreshesGained
+            );
+            // Обновляем время последнего восстановления только на столько, сколько реально восстановилось
+            this.state.lastRefreshTime += refreshesGained * refreshTime;
+            this.saveGame(); // Сохраняем после восстановления
+        }
+    }
+
+    // Возвращает время до следующей замены в миллисекундах
+    getTimeToNextRefresh() {
+        if (this.state.landRefreshes >= this.state.maxLandRefreshes) {
+            return 0;
+        }
+        
+        const refreshTime = 5 * 60 * 1000; // 5 минут
+        const now = Date.now();
+        const timePassed = now - this.state.lastRefreshTime;
+        const timeToNext = refreshTime - (timePassed % refreshTime);
+        
+        return timeToNext;
     }
 
     updateGenerationButton() {
@@ -425,29 +524,19 @@ class Game {
         
         if (!button || !limitSpan) return;
         
-        const now = Date.now();
-        const cooldownTime = CONFIG.generation.cooldownTime;
+        // Обновляем замены перед отображением
+        this.updateLandRefreshes();
         
-        // Ensure generationHistory exists
-        if (!this.state.generationHistory) {
-            this.state.generationHistory = [];
-        }
-        
-        this.state.generationHistory = this.state.generationHistory.filter(
-            timestamp => now - timestamp < cooldownTime
-        );
-        
-        const remainingAttempts = CONFIG.generation.maxAttempts - this.state.generationHistory.length;
-        
-        if (remainingAttempts > 0) {
+        if (this.state.landRefreshes > 0) {
             button.disabled = false;
-            limitSpan.textContent = `(${remainingAttempts}/${CONFIG.generation.maxAttempts})`;
+            limitSpan.textContent = `(${this.state.landRefreshes}/${this.state.maxLandRefreshes})`;
             limitSpan.style.color = 'var(--bg-dark)';
         } else {
             button.disabled = true;
-            const oldestTimestamp = Math.min(...this.state.generationHistory);
-            const timeLeft = Math.ceil((cooldownTime - (now - oldestTimestamp)) / 1000 / 60);
-            limitSpan.textContent = `Ждите ${timeLeft} мин`;
+            const timeToNext = this.getTimeToNextRefresh();
+            const minutes = Math.floor(timeToNext / 60000);
+            const seconds = Math.floor((timeToNext % 60000) / 1000);
+            limitSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             limitSpan.style.color = 'rgba(0,0,0,0.6)';
         }
     }
@@ -1206,7 +1295,7 @@ class Game {
 
         setInterval(() => {
             this.updateGenerationButton();
-        }, 10000);
+        }, 1000); // Обновляем каждую секунду для таймера
 
         setInterval(() => {
             this.updateCompanyPrices();
@@ -1738,6 +1827,9 @@ class Game {
         // ВАЖНО: Обновляем lastOnlineTime ПОСЛЕ расчета прогресса
         // Это гарантирует, что при следующем запуске игры мы правильно рассчитаем оффлайн время
         this.state.lastOnlineTime = now;
+        
+        // Восстанавливаем замены участков за время оффлайна
+        this.updateLandRefreshes();
         
         // Сохраняем обновленное время
         this.saveGame();
@@ -2293,11 +2385,28 @@ class Game {
         const container = document.getElementById('companiesList');
         if (!container) return;
         
+        // Сохраняем значения всех input полей перед перерисовкой
+        const savedInputValues = {};
+        this.state.companies.forEach(company => {
+            const input = document.getElementById(`sell-${company.id}`);
+            if (input && input.value) {
+                savedInputValues[company.id] = input.value;
+            }
+        });
+        
         container.innerHTML = '';
         
         this.state.companies.forEach(company => {
             const card = this.createCompanyCard(company);
             container.appendChild(card);
+        });
+        
+        // Восстанавливаем сохраненные значения после перерисовки
+        Object.keys(savedInputValues).forEach(companyId => {
+            const input = document.getElementById(`sell-${companyId}`);
+            if (input && !input.disabled) {
+                input.value = savedInputValues[companyId];
+            }
         });
     }
 
@@ -2506,21 +2615,27 @@ class Game {
         // Apply migrations if needed
         // Note: version tracking would be better implemented with a version field
 
-        // Ensure all required fields exist with defaults
+        // Ensure all required fields exist with defaults (НЕ перезаписываем существующие!)
         const defaults = this.getDefaultState();
 
-        // Recursive function to ensure all nested properties exist
-        const ensureDefaults = (target, source) => {
-            for (const key in source) {
-                if (!(key in target)) {
-                    target[key] = JSON.parse(JSON.stringify(source[key]));
-                } else if (typeof source[key] === 'object' && source[key] !== null && !Array.isArray(source[key])) {
-                    ensureDefaults(target[key], source[key]);
-                }
+        // Добавляем только отсутствующие поля
+        for (const key in defaults) {
+            if (!(key in this.state)) {
+                this.state[key] = defaults[key];
             }
-        };
+        }
 
-        ensureDefaults(this.state, defaults);
+        // Ensure generationHistory exists and clean old timestamps
+        if (!this.state.generationHistory) {
+            this.state.generationHistory = [];
+        } else if (Array.isArray(this.state.generationHistory)) {
+            // Очищаем старые записи (старше 5 минут) при загрузке
+            const now = Date.now();
+            const cooldownTime = CONFIG.generation.cooldownTime;
+            this.state.generationHistory = this.state.generationHistory.filter(
+                timestamp => now - timestamp < cooldownTime
+            );
+        }
 
         // Specific migrations for known issues
         if (this.state.lands) {
@@ -2552,9 +2667,31 @@ class Game {
             this.state.companies = [];
             this.initCompanies();
         }
+
+        // Инициализация новой системы замен участков для старых сохранений
+        if (typeof this.state.landRefreshes === 'undefined' || typeof this.state.lastRefreshTime === 'undefined') {
+            console.log('Initializing land refresh system');
+            this.state.landRefreshes = 3;
+            this.state.maxLandRefreshes = 3;
+            this.state.lastRefreshTime = Date.now();
+        }
+        
+        // Проверка корректности значений замен
+        if (typeof this.state.landRefreshes !== 'number' || this.state.landRefreshes < 0) {
+            console.warn('Invalid landRefreshes, resetting to 3');
+            this.state.landRefreshes = 3;
+        }
+        if (typeof this.state.maxLandRefreshes !== 'number' || this.state.maxLandRefreshes < 1) {
+            this.state.maxLandRefreshes = 3;
+        }
+        if (typeof this.state.lastRefreshTime !== 'number' || this.state.lastRefreshTime <= 0) {
+            console.warn('Invalid lastRefreshTime, resetting to now');
+            this.state.lastRefreshTime = Date.now();
+        }
     }
 
     getDefaultState() {
+        const now = Date.now(); // Вычисляем каждый раз заново
         return {
             money: CONFIG.initial.money,
             clickPower: CONFIG.initial.clickPower,
@@ -2563,6 +2700,9 @@ class Game {
             availableOil: 0,
             generationHistory: [],
             companies: [],
+            landRefreshes: 3,
+            maxLandRefreshes: 3,
+            lastRefreshTime: now,
             analyzedLands: [],
             rigSlots: CONFIG.initial.rigSlots || 2,
             purchasedSlots: 0,
