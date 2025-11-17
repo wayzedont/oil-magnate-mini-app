@@ -22,7 +22,38 @@ class Game {
             // Новая система замен участков
             landRefreshes: 3, // Текущее количество замен
             maxLandRefreshes: 3, // Максимум замен
-            lastRefreshTime: Date.now() // Время последней замены
+            lastRefreshTime: Date.now(), // Время последней замены
+            // Динамический рынок нефти (по ТЗ)
+            oilMarket: {
+                currentState: null,
+                currentPrice: 0,
+                lastUpdate: Date.now()
+            },
+            // Счетчики для достижений
+            totalClicks: 0,
+            totalLandsBought: 0,
+            totalRigsBuilt: 0,
+            totalEarned: 0,
+            poorLandsStreak: 0,
+            // Система опыта
+            playerLevel: 1,
+            playerXP: 0,
+            // Уровень анализа участков (по ТЗ)
+            analysisLevel: 1,
+            // Бонусы от достижений
+            permanentBonuses: {
+                clickPowerBonus: 0,
+                landPriceDiscount: 0,
+                extractionSpeedBonus: 0,
+                allIncomeBonus: 1.0,
+                freeAnalysis: 0
+            },
+            // Ежедневные награды (по ТЗ)
+            dailyRewards: {
+                lastClaimDate: null,
+                currentStreak: 0,
+                lastWheelSpin: null
+            }
         };
 
         this.selectedLandId = null;
@@ -36,7 +67,33 @@ class Game {
     async init() {
         this.initTelegram();
         await this.loadGame();
+        
+        // Инициализируем переменные для старых сохранений
+        if (typeof this.state.analysisLevel === 'undefined') this.state.analysisLevel = 1;
+        if (!this.state.oilMarket) {
+            this.state.oilMarket = {
+                currentState: null,
+                currentPrice: 0,
+                lastUpdate: Date.now()
+            };
+        }
+        
+        // БАГ #6: Инициализируем permanentBonuses перед пересчетом
+        if (!this.state.permanentBonuses) {
+            this.state.permanentBonuses = {
+                clickPowerBonus: 0,
+                landPriceDiscount: 0,
+                extractionSpeedBonus: 0,
+                allIncomeBonus: 1.0,
+                freeAnalysis: 0
+            };
+        }
+        
+        // Пересчитываем clickPower с учетом бонусов от достижений
+        this.recalculateClickPower();
+        
         this.initCompanies();
+        this.initOilMarket(); // Инициализация рынка нефти
         
         // Генерируем участки только если их нет (новая игра)
         const availableLands = this.state.lands.filter(land => !land.owned);
@@ -52,6 +109,9 @@ class Game {
 
         // Проверить оффлайн прогресс
         this.checkOfflineProgress();
+        
+        // Проверить ежедневные награды (по ТЗ)
+        this.checkDailyReward();
 
         // Запустить систему событий
         this.scheduleEvent();
@@ -234,6 +294,7 @@ class Game {
         document.getElementById('buyLandButton').addEventListener('click', () => this.buyLand());
         document.getElementById('analyzeLandButton').addEventListener('click', () => this.analyzeLand());
         
+        // БАГ #15: Закрытие модальных окон при клике вне области
         document.getElementById('landModal').addEventListener('click', (e) => {
             if (e.target.id === 'landModal') {
                 this.closeLandModal();
@@ -245,6 +306,15 @@ class Game {
                 this.closeProfileModal();
             }
         });
+        
+        const eventModal = document.getElementById('eventModal');
+        if (eventModal) {
+            eventModal.addEventListener('click', (e) => {
+                if (e.target.id === 'eventModal') {
+                    this.closeEventModal();
+                }
+            });
+        }
     }
 
     handleClick(e) {
@@ -252,8 +322,17 @@ class Game {
         if (this.bonusActive) {
             money *= CONFIG.bonusCircle.multiplier;
         }
+        
+        // Применяем бонус от достижений
+        if (this.state.permanentBonuses && this.state.permanentBonuses.allIncomeBonus) {
+            money = Math.floor(money * this.state.permanentBonuses.allIncomeBonus);
+        }
 
         this.state.money += money;
+        this.state.totalClicks++;
+        
+        // Начисляем XP за клик (по ТЗ)
+        this.addXP(CONFIG.xpSystem.sources.click);
 
         this.showFloatingNumber(money, e.clientX, e.clientY);
 
@@ -451,8 +530,10 @@ class Game {
         // Сбросить список участков - оставить только купленные
         this.state.lands = [...ownedLands];
         
-        // Очистить список анализов при генерации новых участков
-        this.state.analyzedLands = [];
+        // БАГ #9: Очистить список анализов для НЕ купленных участков
+        // Оставляем анализы только для купленных участков
+        const ownedLandIds = new Set(ownedLands.map(land => land.id));
+        this.state.analyzedLands = this.state.analyzedLands.filter(landId => ownedLandIds.has(landId));
         
         // Generate new lands with unique IDs
         for (let i = 0; i < CONFIG.lands.totalCount; i++) {
@@ -541,49 +622,52 @@ class Game {
         }
     }
 
+    // Новая система генерации по ТЗ: независимая генерация цены и качества
     generateRandomLand(id) {
-        const price = Math.floor(
-            Math.random() * (CONFIG.lands.priceRange.max - CONFIG.lands.priceRange.min) + 
-            CONFIG.lands.priceRange.min
+        // 1. Генерация цены (независимо)
+        const priceCategory = this.selectWeightedCategory(CONFIG.lands.priceCategories);
+        let price = Math.floor(
+            Math.random() * (priceCategory.max - priceCategory.min) + priceCategory.min
         );
         
-        let priceCategory;
-        if (price < 10000) {
-            priceCategory = 'cheap';
-        } else if (price < 30000) {
-            priceCategory = 'medium';
-        } else {
-            priceCategory = 'expensive';
+        // Применяем скидку от достижений
+        if (this.state.permanentBonuses && this.state.permanentBonuses.landPriceDiscount) {
+            price = Math.floor(price * (1 - this.state.permanentBonuses.landPriceDiscount));
         }
         
-        const probabilities = CONFIG.lands.probabilityMatrix[priceCategory];
-        const qualityRoll = Math.random();
-        let quality;
-        
-        if (qualityRoll < probabilities.empty) {
-            quality = 'empty';
-        } else if (qualityRoll < probabilities.empty + probabilities.poor) {
-            quality = 'poor';
-        } else if (qualityRoll < probabilities.empty + probabilities.poor + probabilities.medium) {
-            quality = 'medium';
-        } else {
-            quality = 'rich';
-        }
-        
-        const multiplier = CONFIG.lands.oilValueMultipliers[quality];
-        const baseReserve = Math.random() * (CONFIG.lands.oilReserveRange.max - CONFIG.lands.oilReserveRange.min) + 
-                           CONFIG.lands.oilReserveRange.min;
-        const oilReserve = Math.floor(baseReserve * multiplier);
+        // 2. Генерация запасов нефти (независимо от цены!)
+        const oilCategory = this.selectWeightedCategory(CONFIG.lands.oilCategories);
+        const oilReserve = Math.floor(
+            Math.random() * (oilCategory.max - oilCategory.min) + oilCategory.min
+        );
         
         return {
             id,
             price,
+            priceCategory: priceCategory.name,
             oilReserve,
             currentOil: oilReserve,
-            quality,
+            oilCategory: oilCategory.name, // Сохраняем категорию для расчета износа
             owned: false,
-            rigs: []
+            rigs: [],
+            lastLossCheck: Date.now() // Для механики износа
         };
+    }
+    
+    // Вспомогательная функция для выбора категории по весам
+    selectWeightedCategory(categories) {
+        const roll = Math.random();
+        let cumulative = 0;
+        
+        for (const category of categories) {
+            cumulative += category.weight;
+            if (roll < cumulative) {
+                return category;
+            }
+        }
+        
+        // Fallback на первую категорию
+        return categories[0];
     }
 
     renderMyLands() {
@@ -604,8 +688,9 @@ class Game {
         if (usedSlotsElement) usedSlotsElement.textContent = occupiedSlots;
         if (totalSlotsElement) totalSlotsElement.textContent = this.state.rigSlots;
 
-        // Обновляем кнопку покупки слота
-        const slotCost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, this.state.purchasedSlots));
+        // БАГ #12: Правильный расчет стоимости слота с учетом всех купленных
+        const totalBoughtSlots = this.state.rigSlots - CONFIG.initial.rigSlots;
+        const slotCost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, totalBoughtSlots));
         if (slotCostElement) slotCostElement.textContent = `${this.formatNumber(slotCost)}₽`;
         if (buySlotButton) buySlotButton.disabled = this.state.money < slotCost;
 
@@ -688,16 +773,17 @@ class Game {
             return '';
         }
         
-        if (land.quality === 'empty') return '❌ Почти пусто';
-        if (land.quality === 'poor') return '⚠️ Мало нефти';
-        if (land.quality === 'medium') return '✅ Нормально';
-        if (land.quality === 'rich') return '💎 Много нефти';
+        // Показываем приблизительный запас с погрешностью
+        const displayedOil = land.analyzedOilReserve || land.oilReserve;
+        const levelData = CONFIG.landAnalysis.levels.find(l => l.level === (land.analysisLevel || 1));
+        const errorPercent = Math.floor(levelData.errorMargin * 100);
         
-        return '';
+        return `📊 ~${this.formatNumber(displayedOil)} баррелей (±${errorPercent}%)`;
     }
 
     getQualityClass(land) {
-        if (land.quality === 'rich' || land.quality === 'medium') {
+        // Новая система: хорошие - good и rare
+        if (land.oilCategory === 'good' || land.oilCategory === 'rare') {
             return 'good';
         } else {
             return 'bad';
@@ -773,7 +859,9 @@ class Game {
             slotWarning.innerHTML = `<small style="color: var(--text-gray);">⚠️ Участок займет 1 слот (${ownedLands.length}/${this.state.rigSlots} занято)</small>`;
             buyButton.parentNode.insertBefore(slotWarning, buyButton.nextSibling);
 
-            const analyzeCost = Math.floor(land.price * CONFIG.landAnalysis.costPercentage);
+            const currentLevel = this.state.analysisLevel || 1;
+            const levelData = CONFIG.landAnalysis.levels.find(l => l.level === currentLevel);
+            const analyzeCost = Math.floor(land.price * levelData.costPercentage);
             const isAnalyzed = this.state.analyzedLands.includes(land.id);
 
             if (isAnalyzed) {
@@ -806,7 +894,10 @@ class Game {
             return;
         }
 
-        const analyzeCost = Math.floor(land.price * CONFIG.landAnalysis.costPercentage);
+        // Используем стоимость анализа для текущего уровня
+        const currentLevel = this.state.analysisLevel || 1;
+        const levelData = CONFIG.landAnalysis.levels.find(l => l.level === currentLevel);
+        const analyzeCost = Math.floor(land.price * levelData.costPercentage);
         
         if (this.state.money < analyzeCost) {
             alert('Недостаточно денег для анализа!');
@@ -814,7 +905,16 @@ class Game {
         }
 
         this.state.money -= analyzeCost;
+        
+        // Применяем погрешность к показателям запаса нефти
+        const errorMargin = levelData.errorMargin;
+        const errorMultiplier = 1 + (Math.random() * 2 - 1) * errorMargin; // От (1-errorMargin) до (1+errorMargin)
+        const displayedOil = Math.floor(land.oilReserve * errorMultiplier);
+        
+        // Сохраняем информацию об анализе
         this.state.analyzedLands.push(land.id);
+        land.analyzedOilReserve = displayedOil; // Показанное значение с погрешностью
+        land.analysisLevel = currentLevel;
         
         this.updateUI();
         this.renderLands();
@@ -849,6 +949,17 @@ class Game {
 
         this.state.money -= land.price;
         land.owned = true;
+        this.state.totalLandsBought++;
+        
+        // Отслеживаем стрик плохих участков для достижения
+        if (land.oilCategory === 'poor') {
+            this.state.poorLandsStreak = (this.state.poorLandsStreak || 0) + 1;
+        } else {
+            this.state.poorLandsStreak = 0;
+        }
+        
+        // Начисляем XP за покупку участка (по ТЗ)
+        this.addXP(CONFIG.xpSystem.sources.buyLand);
 
         const card = document.querySelector(`.land-card:nth-child(${land.id})`);
         if (card) {
@@ -971,6 +1082,10 @@ class Game {
             type: rigId,
             installedAt: Date.now()
         });
+        this.state.totalRigsBuilt++;
+        
+        // Начисляем XP за установку вышки (по ТЗ)
+        this.addXP(CONFIG.xpSystem.sources.buildRig);
 
         this.updateUI();
         this.openLandModal(landId);
@@ -1014,7 +1129,9 @@ class Game {
     }
     
     buyRigSlot() {
-        const cost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, this.state.purchasedSlots));
+        // БАГ #3: Правильный расчет стоимости слота
+        const totalBoughtSlots = this.state.rigSlots - CONFIG.initial.rigSlots;
+        const cost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, totalBoughtSlots));
         
         if (this.state.money < cost) {
             alert('Недостаточно денег для покупки слота!');
@@ -1023,7 +1140,7 @@ class Game {
 
         this.state.money -= cost;
         this.state.rigSlots++;
-        this.state.purchasedSlots++;
+        this.state.purchasedSlots = totalBoughtSlots + 1; // Синхронизируем
         
         this.showFloatingNotification(`✅ Куплен новый слот! Теперь доступно ${this.state.rigSlots} слотов`, 3000);
         
@@ -1120,6 +1237,7 @@ class Game {
 
     upgradeClickPower() {
         const level = this.state.clickSkillLevel;
+        // Новая формула по ТЗ: Стоимость = 15 * (1.25 ^ (level - 1))
         const cost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, level - 1));
 
         if (this.state.money < cost) {
@@ -1130,36 +1248,16 @@ class Game {
         this.state.money -= cost;
         this.state.clickSkillLevel++;
 
-        // Новая формула прогрессии:
-        // Уровень 1: 1₽
-        // Уровень 2: 3₽ (+2)
-        // Уровень 3: 5₽ (+2)
-        // Уровень 4: 8₽ (+3)
-        // Уровень 5: 11₽ (+3)
-        // Уровень 6: 15₽ (+4)
-        // Уровень 7: 19₽ (+4)
-        // Уровень 8: 24₽ (+5)
-        // Далее прирост замедляется
-
+        // Новая формула по ТЗ: Доход = 1 * (1.20 ^ (level - 1))
         const newLevel = this.state.clickSkillLevel;
-        let power;
-
-        if (newLevel === 1) {
-            power = 1;
-        } else if (newLevel <= 3) {
-            power = 1 + (newLevel - 1) * 2; // 1, 3, 5
-        } else if (newLevel <= 5) {
-            power = 5 + (newLevel - 3) * 3; // 8, 11
-        } else if (newLevel <= 7) {
-            power = 11 + (newLevel - 5) * 4; // 15, 19
-        } else if (newLevel <= 10) {
-            power = 19 + (newLevel - 7) * 5; // 24, 29, 34
-        } else {
-            // После 10 уровня - еще медленнее
-            power = 34 + (newLevel - 10) * 3;
+        let power = CONFIG.skills.clickPower.baseIncome * Math.pow(CONFIG.skills.clickPower.incomeMultiplier, newLevel - 1);
+        
+        // Применяем бонусы от достижений
+        if (this.state.permanentBonuses && this.state.permanentBonuses.clickPowerBonus) {
+            power *= (1 + this.state.permanentBonuses.clickPowerBonus);
         }
-
-        this.state.clickPower = power;
+        
+        this.state.clickPower = Math.floor(power);
 
         this.updateUI();
         this.saveGame();
@@ -1168,7 +1266,18 @@ class Game {
         setTimeout(() => this.checkAchievements(), 100);
     }
 
-
+    recalculateClickPower() {
+        // Пересчитываем clickPower с учетом уровня и бонусов
+        const level = this.state.clickSkillLevel || 1;
+        let power = CONFIG.skills.clickPower.baseIncome * Math.pow(CONFIG.skills.clickPower.incomeMultiplier, level - 1);
+        
+        // Применяем бонусы от достижений
+        if (this.state.permanentBonuses && this.state.permanentBonuses.clickPowerBonus) {
+            power *= (1 + this.state.permanentBonuses.clickPowerBonus);
+        }
+        
+        this.state.clickPower = Math.floor(power);
+    }
 
     updateProfileUI() {
         document.getElementById('profileMoney').textContent = this.formatNumber(Math.floor(this.state.money)) + '₽';
@@ -1318,6 +1427,16 @@ class Game {
             this.updateCompanyCooldowns();
         }, 1000);
 
+        // Механика износа участков - проверяем каждый час
+        setInterval(() => {
+            this.applyLandDegradation();
+        }, 60 * 60 * 1000); // Каждый час
+
+        // Динамический рынок нефти - обновляем каждые 2 часа
+        setInterval(() => {
+            this.updateOilMarket();
+        }, CONFIG.oilMarket.updateInterval);
+
         // Новые игровые механики для вовлеченности
         setInterval(() => {
             this.showRandomTip();
@@ -1326,6 +1445,58 @@ class Game {
         setInterval(() => {
             this.checkAchievements();
         }, 30000); // Каждые 30 секунд
+    }
+
+    // Механика износа: участки теряют 3-6% нефти в сутки (по ТЗ)
+    applyLandDegradation() {
+        const now = Date.now();
+        let hasChanges = false;
+
+        this.state.lands.forEach(land => {
+            // Применяем износ только к купленным участкам с нефтью
+            if (!land.owned || land.currentOil <= 0) {
+                return;
+            }
+
+            // Инициализируем lastLossCheck если нет
+            if (!land.lastLossCheck) {
+                land.lastLossCheck = now;
+                return;
+            }
+
+            const timePassed = now - land.lastLossCheck;
+            const dayInMs = 24 * 60 * 60 * 1000;
+
+            // Если прошло больше 24 часов, применяем потери
+            if (timePassed >= dayInMs) {
+                const daysPassed = Math.floor(timePassed / dayInMs);
+                
+                // Получаем процент потерь в зависимости от категории участка
+                const lossRate = CONFIG.lands.dailyLoss[land.oilCategory] || 0.05;
+                
+                // Применяем потери за каждый прошедший день
+                for (let i = 0; i < daysPassed; i++) {
+                    const loss = land.currentOil * lossRate;
+                    land.currentOil = Math.max(0, land.currentOil - loss);
+                }
+
+                land.lastLossCheck = now;
+                hasChanges = true;
+
+                // Уведомление о потерях (только если значительные)
+                if (daysPassed > 0 && land.currentOil > 0) {
+                    this.showFloatingNotification(
+                        `⚠️ Участок #${land.id}: потеряно ${(lossRate * 100).toFixed(0)}% нефти за ${daysPassed} дн.`,
+                        4000
+                    );
+                }
+            }
+        });
+
+        if (hasChanges) {
+            this.updateUI();
+            this.saveGame();
+        }
     }
 
     updateCompanyCooldowns() {
@@ -1387,78 +1558,77 @@ class Game {
         if (!this.state.achievements) {
             this.state.achievements = [];
         }
-
-        const achievements = [
-            { 
-                id: 'first_click', 
-                condition: () => this.state.clickSkillLevel >= 2, 
-                reward: 100, 
-                text: '🎉 Первое улучшение клика! +100₽' 
-            },
-            { 
-                id: 'first_land', 
-                condition: () => this.state.lands.filter(l => l.owned).length >= 1, 
-                reward: 500, 
-                text: '🏜️ Первый участок! +500₽' 
-            },
-            { 
-                id: 'first_rig', 
-                condition: () => this.state.lands.some(l => l.owned && l.rigs && l.rigs.length > 0), 
-                reward: 1000, 
-                text: '🏭 Первая вышка! +1000₽' 
-            },
-            { 
-                id: 'first_sale', 
-                condition: () => (this.state.totalOilSales || 0) >= 1, 
-                reward: 500, 
-                text: '💰 Первая продажа нефти! +500₽' 
-            },
-            { 
-                id: 'five_lands', 
-                condition: () => this.state.lands.filter(l => l.owned).length >= 5, 
-                reward: 3000, 
-                text: '🌍 5 участков! +3000₽' 
-            },
-            { 
-                id: 'money_10k', 
-                condition: () => this.state.money >= 10000, 
-                reward: 1000, 
-                text: '💵 10,000₽ накоплено! +1000₽' 
-            },
-            { 
-                id: 'rich', 
-                condition: () => this.state.money >= 100000, 
-                reward: 5000, 
-                text: '💎 100,000₽ накоплено! +5000₽' 
-            },
-            { 
-                id: 'millionaire', 
-                condition: () => this.state.money >= 1000000, 
-                reward: 10000, 
-                text: '👑 Миллионер! +10000₽' 
-            },
-            { 
-                id: 'oil_collector', 
-                condition: () => this.state.availableOil >= 1000, 
-                reward: 1000, 
-                text: '🛢️ 1000 баррелей запас! +1000₽' 
-            },
-            { 
-                id: 'oil_tycoon', 
-                condition: () => this.state.availableOil >= 10000, 
-                reward: 5000, 
-                text: '⚡ Нефтяной магнат! +5000₽' 
-            }
-        ];
+        
+        // Инициализируем счетчики если их нет (для старых сохранений)
+        if (typeof this.state.totalClicks === 'undefined') this.state.totalClicks = 0;
+        if (typeof this.state.totalLandsBought === 'undefined') this.state.totalLandsBought = 0;
+        if (typeof this.state.totalRigsBuilt === 'undefined') this.state.totalRigsBuilt = 0;
+        if (typeof this.state.totalEarned === 'undefined') this.state.totalEarned = 0;
+        if (typeof this.state.poorLandsStreak === 'undefined') this.state.poorLandsStreak = 0;
+        
+        // Инициализируем бонусы если их нет
+        if (!this.state.permanentBonuses) {
+            this.state.permanentBonuses = {
+                clickPowerBonus: 0,
+                landPriceDiscount: 0,
+                extractionSpeedBonus: 0,
+                allIncomeBonus: 1.0,
+                freeAnalysis: 0
+            };
+        }
 
         let hasNewAchievement = false;
 
-        achievements.forEach(achievement => {
+        CONFIG.achievements.forEach(achievement => {
             try {
-                if (achievement.condition() && !this.state.achievements.includes(achievement.id)) {
+                // Проверяем условие достижения
+                let conditionMet = false;
+                
+                if (achievement.condition.clicks && this.state.totalClicks >= achievement.condition.clicks) {
+                    conditionMet = true;
+                }
+                if (achievement.condition.landsBought && this.state.totalLandsBought >= achievement.condition.landsBought) {
+                    conditionMet = true;
+                }
+                if (achievement.condition.rigsBuilt && this.state.totalRigsBuilt >= achievement.condition.rigsBuilt) {
+                    conditionMet = true;
+                }
+                if (achievement.condition.poorLandsInRow && this.state.poorLandsStreak >= achievement.condition.poorLandsInRow) {
+                    conditionMet = true;
+                }
+                if (achievement.condition.totalEarned && this.state.totalEarned >= achievement.condition.totalEarned) {
+                    conditionMet = true;
+                }
+                
+                // Если условие выполнено и достижение еще не получено
+                if (conditionMet && !this.state.achievements.includes(achievement.id)) {
                     this.state.achievements.push(achievement.id);
-                    this.state.money += achievement.reward;
-                    this.showFloatingNotification(achievement.text, 8000);
+                    
+                    // Применяем постоянные бонусы (по ТЗ)
+                    if (achievement.reward.clickPowerBonus) {
+                        this.state.permanentBonuses.clickPowerBonus += achievement.reward.clickPowerBonus;
+                    }
+                    if (achievement.reward.landPriceDiscount) {
+                        this.state.permanentBonuses.landPriceDiscount += achievement.reward.landPriceDiscount;
+                    }
+                    if (achievement.reward.extractionSpeedBonus) {
+                        this.state.permanentBonuses.extractionSpeedBonus += achievement.reward.extractionSpeedBonus;
+                    }
+                    if (achievement.reward.allIncomeBonus) {
+                        this.state.permanentBonuses.allIncomeBonus *= achievement.reward.allIncomeBonus;
+                    }
+                    if (achievement.reward.freeAnalysis) {
+                        this.state.permanentBonuses.freeAnalysis += achievement.reward.freeAnalysis;
+                    }
+                    
+                    // Начисляем XP за достижение
+                    this.addXP(CONFIG.xpSystem.sources.achievement);
+                    
+                    // Показываем уведомление
+                    this.showFloatingNotification(
+                        `🏆 ${achievement.name}: ${achievement.description}!`,
+                        8000
+                    );
                     hasNewAchievement = true;
                 }
             } catch (error) {
@@ -1473,11 +1643,9 @@ class Game {
     }
 
     showFloatingNotification(message, duration = 3000) {
-        // Проверяем, нет ли уже активного уведомления
-        const existingNotification = document.querySelector('.floating-notification');
-        if (existingNotification) {
-            existingNotification.remove();
-        }
+        // БАГ #14: Убираем ВСЕ старые уведомления перед показом нового
+        const existingNotifications = document.querySelectorAll('.floating-notification');
+        existingNotifications.forEach(notif => notif.remove());
 
         const notification = document.createElement('div');
         notification.className = 'floating-notification';
@@ -1564,6 +1732,8 @@ class Game {
             if (land.rigs && land.rigs.length > 0 && land.currentOil > 0) {
                 land.rigs.forEach(rig => {
                     const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                    if (!rigConfig) return; // Защита от невалидных вышек
+                    
                     const extracted = rigConfig.extractionRate;
                     const lost = extracted * (rigConfig.lossPercentage / 100);
                     const effective = extracted - lost;
@@ -1571,6 +1741,11 @@ class Game {
                 });
             }
         });
+        
+        // БАГ #27: Применяем бонус от достижений правильно
+        if (this.state.permanentBonuses && this.state.permanentBonuses.extractionSpeedBonus) {
+            total *= (1 + this.state.permanentBonuses.extractionSpeedBonus);
+        }
 
         return total;
     }
@@ -1601,22 +1776,9 @@ class Game {
 
         if (clickSkillLevelElement) clickSkillLevelElement.textContent = safeClickSkillLevel;
 
-        // Показываем следующую силу клика вместо текущей
+        // Показываем следующую силу клика по новой формуле: 1 * (1.20 ^ (level - 1))
         const nextLevel = safeClickSkillLevel + 1;
-        let nextPower;
-        if (nextLevel === 1) {
-            nextPower = 1;
-        } else if (nextLevel <= 3) {
-            nextPower = 1 + (nextLevel - 1) * 2; // 1, 3, 5
-        } else if (nextLevel <= 5) {
-            nextPower = 5 + (nextLevel - 3) * 3; // 8, 11
-        } else if (nextLevel <= 7) {
-            nextPower = 11 + (nextLevel - 5) * 4; // 15, 19
-        } else if (nextLevel <= 10) {
-            nextPower = 19 + (nextLevel - 7) * 5; // 24, 29, 34
-        } else {
-            nextPower = 34 + (nextLevel - 10) * 3;
-        }
+        const nextPower = Math.floor(CONFIG.skills.clickPower.baseIncome * Math.pow(CONFIG.skills.clickPower.incomeMultiplier, nextLevel - 1));
         if (clickSkillBonusElement) clickSkillBonusElement.textContent = nextPower;
 
         const clickCost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, safeClickSkillLevel - 1));
@@ -1636,27 +1798,48 @@ class Game {
     }
 
     updateProfileLevel() {
+        // БАГ #7: Не создаем новые элементы каждый раз, только обновляем существующие
         const profileModal = document.getElementById('profileModal');
         if (!profileModal) return;
 
-        // Добавляем отображение уровня в профиль
+        const currentLevel = this.state.playerLevel || 1;
+        const currentXP = this.state.playerXP || 0;
+        const nextLevelXP = this.getXPForLevel(currentLevel + 1);
+        const xpProgress = Math.floor((currentXP / nextLevelXP) * 100);
+        
         let levelElement = document.getElementById('playerLevelDisplay');
+        
         if (!levelElement) {
+            // Создаем только если элемента еще нет
             const profileStats = document.querySelector('.profile-stats');
             if (profileStats) {
                 const levelCard = document.createElement('div');
                 levelCard.className = 'stat-card';
+                levelCard.id = 'playerLevelCard'; // Добавляем ID для проверки
                 levelCard.innerHTML = `
                     <div class="stat-icon">⭐</div>
                     <div class="stat-info">
                         <p class="stat-label">Уровень</p>
-                        <p class="stat-value" id="playerLevelDisplay">${this.state.playerLevel} - ${this.state.playerLevelName}</p>
+                        <p class="stat-value" id="playerLevelDisplay">${currentLevel}</p>
+                        <div class="xp-bar">
+                            <div class="xp-progress" id="playerXPProgress" style="width: ${xpProgress}%"></div>
+                        </div>
+                        <p class="stat-label" id="playerXPLabel" style="font-size: 12px;">XP: ${currentXP}/${nextLevelXP}</p>
                     </div>
                 `;
                 profileStats.appendChild(levelCard);
             }
         } else {
-            levelElement.textContent = `${this.state.playerLevel} - ${this.state.playerLevelName}`;
+            // Обновляем только значения
+            levelElement.textContent = `${currentLevel}`;
+            const xpBar = document.getElementById('playerXPProgress');
+            if (xpBar) {
+                xpBar.style.width = `${xpProgress}%`;
+            }
+            const xpLabel = document.getElementById('playerXPLabel');
+            if (xpLabel) {
+                xpLabel.textContent = `XP: ${currentXP}/${nextLevelXP}`;
+            }
         }
     }
 
@@ -1675,9 +1858,9 @@ class Game {
     }
 
     async saveGame() {
-        // Обновляем lastOnlineTime только когда игрок активен, НЕ при каждом сохранении
+        // БАГ #17: НЕ обновляем lastOnlineTime при сохранении, только при выходе
         // Это нужно для корректного расчета оффлайн прогресса
-        // lastOnlineTime обновляется только в checkOfflineProgress() после расчета прогресса
+        // lastOnlineTime обновляется в setupBeforeUnloadHandler()
         
         const saveData = {
             state: this.state,
@@ -1739,14 +1922,19 @@ class Game {
     }
 
     sendDataToAdmin(saveData) {
+        // БАГ #20: Отправляем данные админу только для Telegram пользователей
+        if (!this.telegramUser) {
+            return; // Для гостей не отправляем
+        }
+        
         // Имитируем отправку данных для админ статистики
         // В реальной игре здесь будет отправка на сервер
         try {
             // Сохраняем в специальном ключе для админа
-            const adminKey = 'admin_player_data_' + (this.telegramUser ? this.telegramUser.id : 'guest');
+            const adminKey = 'admin_player_data_' + this.telegramUser.id;
             localStorage.setItem(adminKey, JSON.stringify({
-                playerId: this.telegramUser ? this.telegramUser.id : 'guest',
-                playerName: this.telegramUser ? `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim() : 'Гость',
+                playerId: this.telegramUser.id,
+                playerName: `${this.telegramUser.first_name} ${this.telegramUser.last_name || ''}`.trim(),
                 money: saveData.state.money,
                 oil: saveData.state.availableOil,
                 lands: saveData.state.lands.filter(l => l.owned).length,
@@ -2072,6 +2260,8 @@ class Game {
             placeholder.style.display = 'none';
             management.style.display = 'block';
             createBtn.style.display = 'none';
+            // БАГ #5: Обновляем UI собственной компании
+            this.updateOwnCompanyUI();
         } else {
             placeholder.style.display = 'block';
             management.style.display = 'none';
@@ -2269,6 +2459,7 @@ class Game {
     }
 
     initCompanies() {
+        // БАГ #2: Защита от дублирования компаний
         if (!this.state.companies || this.state.companies.length === 0) {
             this.state.companies = CONFIG.companies.list.map(company => {
                 const currentDemand = Math.floor((company.maxDemand + company.minDemand) / 2);
@@ -2294,14 +2485,24 @@ class Game {
             });
         } else {
             // Для загруженных компаний проверяем наличие поля cooldownUntil и contractLevel
+            // БАГ #2: Проверяем что нет дубликатов
+            const uniqueCompanies = [];
+            const seenIds = new Set();
+            
             this.state.companies.forEach(company => {
-                if (company.cooldownUntil === undefined) {
-                    company.cooldownUntil = null;
-                }
-                if (company.contractLevel === undefined) {
-                    company.contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
+                if (!seenIds.has(company.id)) {
+                    seenIds.add(company.id);
+                    if (company.cooldownUntil === undefined) {
+                        company.cooldownUntil = null;
+                    }
+                    if (company.contractLevel === undefined) {
+                        company.contractLevel = this.state.companyContracts[company.id] ? this.state.companyContracts[company.id].level : 1;
+                    }
+                    uniqueCompanies.push(company);
                 }
             });
+            
+            this.state.companies = uniqueCompanies;
         }
 
         // Инициализируем контракты, если их нет
@@ -2313,6 +2514,244 @@ class Game {
                 this.state.companyContracts[company.id] = { level: 1 };
             }
         });
+    }
+
+    // Инициализация динамического рынка нефти (по ТЗ)
+    initOilMarket() {
+        if (!this.state.oilMarket || !this.state.oilMarket.currentState) {
+            // Генерируем начальное состояние рынка
+            this.updateOilMarket();
+        } else {
+            // Проверяем, нужно ли обновить рынок
+            const now = Date.now();
+            const timeSinceUpdate = now - (this.state.oilMarket.lastUpdate || 0);
+            
+            if (timeSinceUpdate >= CONFIG.oilMarket.updateInterval) {
+                this.updateOilMarket();
+            }
+        }
+    }
+
+    // Обновление рынка нефти (вызывается каждые 2 часа)
+    updateOilMarket() {
+        // Выбираем состояние рынка на основе вероятностей
+        const state = this.selectWeightedCategory(CONFIG.oilMarket.states);
+        
+        // Генерируем цену в пределах диапазона состояния
+        const price = Math.floor(
+            Math.random() * (state.maxPrice - state.minPrice) + state.minPrice
+        );
+        
+        this.state.oilMarket = {
+            currentState: state.name,
+            currentStateName: state.displayName,
+            currentPrice: price,
+            lastUpdate: Date.now()
+        };
+        
+        // Уведомляем игрока об обновлении рынка
+        this.showFloatingNotification(
+            `📊 Рынок обновлен: ${state.displayName} | ${price}₽/барр`,
+            5000
+        );
+        
+        this.saveGame();
+    }
+
+    // Система опыта и уровней (по ТЗ)
+    addXP(amount, source = 'action') {
+        // БАГ #8: Защита от бесконечного цикла через checkAchievements
+        // Инициализируем переменные если их нет
+        if (typeof this.state.playerXP === 'undefined') this.state.playerXP = 0;
+        if (typeof this.state.playerLevel === 'undefined') this.state.playerLevel = 1;
+        
+        this.state.playerXP += amount;
+        
+        // Проверяем повышение уровня
+        const xpNeeded = this.getXPForLevel(this.state.playerLevel + 1);
+        
+        if (this.state.playerXP >= xpNeeded) {
+            this.levelUp();
+        }
+        
+        this.updateUI();
+        this.saveGame();
+    }
+
+    getXPForLevel(level) {
+        // Формула из ТЗ: 100 * (1.45 ^ (level - 1))
+        return Math.floor(100 * Math.pow(1.45, level - 1));
+    }
+
+    levelUp() {
+        this.state.playerLevel++;
+        
+        // Показываем уведомление о новом уровне
+        this.showFloatingNotification(
+            `🎉 Новый уровень ${this.state.playerLevel}!`,
+            3000
+        );
+        
+        // БАГ #8: НЕ вызываем checkAchievements здесь чтобы избежать бесконечного цикла
+        // checkAchievements сам вызывает addXP, который может вызвать levelUp
+        // Достижения проверяются в основном игровом цикле
+        
+        this.updateUI();
+        this.saveGame();
+    }
+
+    // Ежедневные бонусы (по ТЗ)
+    checkDailyReward() {
+        // Инициализируем dailyRewards если их нет (для старых сохранений)
+        if (!this.state.dailyRewards) {
+            this.state.dailyRewards = {
+                lastClaimDate: null,
+                currentStreak: 0,
+                lastWheelSpin: null
+            };
+        }
+        
+        const now = Date.now();
+        const lastClaim = this.state.dailyRewards.lastClaimDate;
+        
+        if (!lastClaim) {
+            // Первый вход - показываем награду за день 1
+            this.showDailyRewardModal(1);
+            return;
+        }
+        
+        const daysSinceLastClaim = Math.floor((now - lastClaim) / (24 * 60 * 60 * 1000));
+        
+        if (daysSinceLastClaim >= 1) {
+            // Прошел хотя бы 1 день
+            if (daysSinceLastClaim === 1) {
+                // Продолжение стрика
+                this.state.dailyRewards.currentStreak++;
+            } else {
+                // Стрик сброшен
+                this.state.dailyRewards.currentStreak = 1;
+            }
+            
+            // Ограничиваем стрик 7 днями
+            if (this.state.dailyRewards.currentStreak > 7) {
+                this.state.dailyRewards.currentStreak = 1;
+            }
+            
+            this.showDailyRewardModal(this.state.dailyRewards.currentStreak);
+        }
+    }
+
+    showDailyRewardModal(day) {
+        const reward = CONFIG.dailyRewards.streak[day - 1];
+        if (!reward) return;
+        
+        let rewardText = '';
+        
+        if (reward.money) {
+            this.state.money += reward.money;
+            rewardText = `${reward.money}₽`;
+        } else if (reward.boost) {
+            // Применяем буст
+            if (reward.boost.type === 'priceMultiplier') {
+                this.state.priceMultiplier = reward.boost.value;
+                setTimeout(() => {
+                    this.state.priceMultiplier = 1;
+                    this.showFloatingNotification('Буст цен закончился', 3000);
+                }, reward.boost.duration);
+                rewardText = `x${reward.boost.value} цена на ${reward.boost.duration / 60000} мин`;
+            }
+        } else if (reward.freeLand) {
+            // Добавляем бесплатный участок
+            this.grantFreeLand(reward.freeLand);
+            rewardText = `Бесплатный участок (${reward.freeLand.quality})`;
+        }
+        
+        this.state.dailyRewards.lastClaimDate = Date.now();
+        
+        this.showFloatingNotification(
+            `🎁 День ${day}: ${rewardText}!`,
+            5000
+        );
+        
+        this.saveGame();
+    }
+
+    grantFreeLand(landConfig) {
+        // Находим первый не купленный участок
+        const freeLand = this.state.lands.find(l => !l.owned);
+        
+        if (freeLand) {
+            freeLand.owned = true;
+            
+            // Устанавливаем запасы нефти в соответствии с конфигом
+            if (landConfig.minOil && landConfig.maxOil) {
+                freeLand.oilReserve = Math.floor(
+                    Math.random() * (landConfig.maxOil - landConfig.minOil) + landConfig.minOil
+                );
+                freeLand.currentOil = freeLand.oilReserve;
+            }
+            
+            this.renderLands();
+            this.updateUI();
+        }
+    }
+
+    checkWheelOfFortune() {
+        const now = Date.now();
+        const lastSpin = this.state.dailyRewards.lastWheelSpin;
+        
+        if (!lastSpin || (now - lastSpin) >= CONFIG.dailyRewards.wheelOfFortune.cooldown) {
+            // Можно крутить колесо
+            return true;
+        }
+        
+        return false;
+    }
+
+    spinWheel() {
+        if (!this.checkWheelOfFortune()) {
+            const lastSpin = this.state.dailyRewards.lastWheelSpin;
+            const timeLeft = CONFIG.dailyRewards.wheelOfFortune.cooldown - (Date.now() - lastSpin);
+            const hoursLeft = Math.floor(timeLeft / (60 * 60 * 1000));
+            alert(`Колесо удачи доступно через ${hoursLeft} часов`);
+            return;
+        }
+        
+        // Выбираем приз по весам
+        const prize = this.selectWeightedCategory(CONFIG.dailyRewards.wheelOfFortune.prizes);
+        
+        let prizeText = '';
+        
+        if (prize.type === 'money') {
+            const amount = Math.floor(Math.random() * (prize.max - prize.min) + prize.min);
+            this.state.money += amount;
+            prizeText = `${amount}₽`;
+        } else if (prize.type === 'clickMultiplier') {
+            // Временный множитель кликов
+            const oldPower = this.state.clickPower;
+            this.state.clickPower = Math.floor(oldPower * prize.value);
+            
+            setTimeout(() => {
+                this.state.clickPower = oldPower;
+                this.showFloatingNotification('Множитель кликов закончился', 3000);
+                this.updateUI();
+            }, prize.duration);
+            
+            prizeText = `x${prize.value} клик на ${prize.duration / 60000} мин`;
+        } else if (prize.type === 'extractionBoost') {
+            // Временный буст добычи (можно реализовать через модификатор)
+            prizeText = `+${(prize.value - 1) * 100}% добыча на ${prize.duration / 60000} мин`;
+        }
+        
+        this.state.dailyRewards.lastWheelSpin = Date.now();
+        
+        this.showFloatingNotification(
+            `🎰 Колесо удачи: ${prizeText}!`,
+            5000
+        );
+        
+        this.updateUI();
+        this.saveGame();
     }
 
     updateCompanyPrices() {
@@ -2417,10 +2856,10 @@ class Game {
         const priceClass = company.priceChangePercent > 0 ? 'price-up' : company.priceChangePercent < 0 ? 'price-down' : '';
         const priceIcon = company.priceChangePercent > 0 ? '📈' : company.priceChangePercent < 0 ? '📉' : '➡️';
 
-        // Проверяем кулдаун
+        // БАГ #4: Проверяем кулдаун с защитой от отрицательных значений
         const now = Date.now();
-        const isOnCooldown = company.cooldownUntil && now < company.cooldownUntil;
-        const cooldownRemaining = isOnCooldown ? Math.ceil((company.cooldownUntil - now) / 1000) : 0;
+        const isOnCooldown = company.cooldownUntil && company.cooldownUntil > now;
+        const cooldownRemaining = isOnCooldown ? Math.max(0, Math.ceil((company.cooldownUntil - now) / 1000)) : 0;
 
         const availableOil = Math.floor(this.state.availableOil);
         const maxSellAmount = Math.min(availableOil, company.currentDemand);
@@ -2546,7 +2985,7 @@ class Game {
         }
 
         // Проверка: не превышает ли количество доступную нефть
-        const availableOil = Math.floor(this.state.availableOil);
+        const availableOil = Math.max(0, Math.floor(this.state.availableOil));
         if (amount > availableOil) {
             alert(`У вас только ${availableOil} баррелей нефти`);
             return;
@@ -2559,12 +2998,22 @@ class Game {
         }
 
         // Все проверки прошли - продаем
-        const totalPrice = Math.floor(amount * (company.currentPrice || 0));
+        let totalPrice = Math.floor(amount * (company.currentPrice || 0));
+        
+        // Применяем бонус от достижений
+        if (this.state.permanentBonuses && this.state.permanentBonuses.allIncomeBonus) {
+            totalPrice = Math.floor(totalPrice * this.state.permanentBonuses.allIncomeBonus);
+        }
+        
         this.state.money += totalPrice;
-        this.state.availableOil -= amount;
+        this.state.availableOil = Math.max(0, this.state.availableOil - amount); // БАГ #1: Защита от отрицательного значения
+        this.state.totalEarned += totalPrice;
         
         // Увеличиваем счетчик продаж для достижения
         this.state.totalOilSales = (this.state.totalOilSales || 0) + 1;
+        
+        // Начисляем XP за продажу (по ТЗ)
+        this.addXP(CONFIG.xpSystem.sources.sellOil);
 
         // Уменьшаем спрос компании
         company.currentDemand -= amount;
@@ -2572,10 +3021,13 @@ class Game {
         // Если спрос упал до нуля или ниже - компания уходит в кулдаун
         if (company.currentDemand <= 0) {
             company.currentDemand = 0;
-            company.cooldownUntil = Date.now() + 60000; // 1 минута кулдауна
+            // БАГ #29: Используем cooldownTime из конфига или дефолтное значение
+            const configCompany = CONFIG.companies.list.find(c => c.id === company.id);
+            const cooldownTime = configCompany?.cooldownTime || CONFIG.companies.defaultCooldownTime || 180000;
+            company.cooldownUntil = Date.now() + cooldownTime;
             
-            // Показываем уведомление о кулдауне
-            this.showFloatingNotification(`${company.name} ушла в кулдаун на 1 минуту`, 3000);
+            const cooldownMinutes = Math.floor(cooldownTime / 60000);
+            this.showFloatingNotification(`${company.name} ушла в кулдаун на ${cooldownMinutes} мин`, 3000);
         }
 
         this.showFloatingNumber(totalPrice, window.innerWidth / 2, window.innerHeight / 2);
