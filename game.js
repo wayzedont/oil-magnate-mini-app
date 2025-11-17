@@ -17,7 +17,8 @@ class Game {
             ownCompany: null,
             events: [],
             priceMultiplier: 1.0,
-            priceMultiplierEndTime: 0
+            priceMultiplierEndTime: 0,
+            totalOilSales: 0
         };
 
         this.selectedLandId = null;
@@ -47,7 +48,45 @@ class Game {
         // Запустить счетчик времени игры
         this.startPlayTimeCounter();
 
+        // Обработчик закрытия страницы для сохранения времени выхода
+        this.setupBeforeUnloadHandler();
+
         this.updateUI();
+    }
+
+    setupBeforeUnloadHandler() {
+        // При закрытии страницы обновляем lastOnlineTime
+        window.addEventListener('beforeunload', () => {
+            // Обновляем время выхода
+            this.state.lastOnlineTime = Date.now();
+            
+            // Синхронно сохраняем в localStorage
+            const saveData = {
+                state: this.state,
+                version: '1.2',
+                savedAt: Date.now(),
+                checksum: this.generateChecksum(this.state)
+            };
+            
+            const storageKey = this.telegramUser ? `oilGame_${this.telegramUser.id}` : 'oilGame_guest';
+            
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(saveData));
+            } catch (e) {
+                console.error('Failed to save on unload:', e);
+            }
+        });
+
+        // Также для мобильных устройств и Telegram WebApp
+        if (this.telegramWebApp) {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    // Страница скрыта - обновляем время
+                    this.state.lastOnlineTime = Date.now();
+                    this.saveGame();
+                }
+            });
+        }
     }
 
     async loadGame() {
@@ -667,17 +706,31 @@ class Game {
 
     analyzeLand() {
         const land = this.state.lands.find(l => l.id === this.selectedLandId);
+        
+        if (!land) {
+            alert('Участок не найден!');
+            return;
+        }
+
+        if (this.state.analyzedLands.includes(land.id)) {
+            alert('Участок уже проанализирован!');
+            return;
+        }
+
         const analyzeCost = Math.floor(land.price * CONFIG.landAnalysis.costPercentage);
         
-        if (this.state.money >= analyzeCost) {
-            this.state.money -= analyzeCost;
-            this.state.analyzedLands.push(land.id);
-            
-            this.updateUI();
-            this.renderLands();
-            this.openLandModal(land.id);
-            this.saveGame();
+        if (this.state.money < analyzeCost) {
+            alert('Недостаточно денег для анализа!');
+            return;
         }
+
+        this.state.money -= analyzeCost;
+        this.state.analyzedLands.push(land.id);
+        
+        this.updateUI();
+        this.renderLands();
+        this.openLandModal(land.id);
+        this.saveGame();
     }
 
     closeLandModal() {
@@ -688,31 +741,39 @@ class Game {
     buyLand() {
         const land = this.state.lands.find(l => l.id === this.selectedLandId);
 
-        if (this.state.money >= land.price) {
-            // Проверяем: есть ли свободные слоты для установки вышки (все купленные участки занимают слоты)
-            const ownedLands = this.state.lands.filter(l => l.owned);
-            if (ownedLands.length >= this.state.rigSlots) {
-                alert(`Нельзя купить участок! У вас ${this.state.rigSlots} слотов для вышек, все заняты. Купите дополнительный слот, чтобы освободить место.`);
-                return;
-            }
-
-            this.state.money -= land.price;
-            land.owned = true;
-
-            const card = document.querySelector(`.land-card:nth-child(${land.id})`);
-            if (card) {
-                card.classList.add('success-flash');
-                setTimeout(() => card.classList.remove('success-flash'), 500);
-            }
-
-            this.updateUI();
-            this.renderLands();
-            this.openLandModal(land.id);
-            this.saveGame();
-
-            // Check achievements after buying land
-            setTimeout(() => this.checkAchievements(), 100);
+        if (!land) {
+            alert('Участок не найден!');
+            return;
         }
+
+        if (this.state.money < land.price) {
+            alert('Недостаточно денег!');
+            return;
+        }
+
+        // Проверяем: есть ли свободные слоты (все купленные участки занимают слоты)
+        const ownedLands = this.state.lands.filter(l => l.owned);
+        if (ownedLands.length >= this.state.rigSlots) {
+            alert(`Нельзя купить участок! У вас ${this.state.rigSlots} слотов для участков, все заняты. Купите дополнительный слот, чтобы освободить место.`);
+            return;
+        }
+
+        this.state.money -= land.price;
+        land.owned = true;
+
+        const card = document.querySelector(`.land-card:nth-child(${land.id})`);
+        if (card) {
+            card.classList.add('success-flash');
+            setTimeout(() => card.classList.remove('success-flash'), 500);
+        }
+
+        this.updateUI();
+        this.renderLands();
+        this.openLandModal(land.id);
+        this.saveGame();
+
+        // Check achievements after buying land
+        setTimeout(() => this.checkAchievements(), 100);
     }
 
     renderRigs(land) {
@@ -794,64 +855,109 @@ class Game {
         const land = this.state.lands.find(l => l.id === landId);
         const rig = CONFIG.rigs.types.find(r => r.id === rigId);
 
-        // Проверяем количество свободных слотов (все скважины с установленными вышками)
-        const activeLands = this.state.lands.filter(l => l.owned && l.rigs && l.rigs.length > 0);
-
-        // Если это первая вышка и слоты заняты, проверяем
-        if (land.rigs.length === 0 && activeLands.length >= this.state.rigSlots) {
-            alert(`Все слоты заняты! У вас ${this.state.rigSlots} слотов для вышек. Купите дополнительный слот или удалите истощённую скважину, чтобы освободить место.`);
+        if (!land || !rig) {
+            alert('Ошибка: участок или вышка не найдены!');
             return;
         }
 
-        if (this.state.money >= rig.price && land.rigs.length < CONFIG.rigs.maxPerLand) {
-            this.state.money -= rig.price;
-            land.rigs.push({
-                type: rigId,
-                installedAt: Date.now()
-            });
-
-            this.updateUI();
-            this.openLandModal(landId);
-            this.saveGame();
+        if (!land.owned) {
+            alert('Участок не куплен!');
+            return;
         }
+
+        if (this.state.money < rig.price) {
+            alert('Недостаточно денег!');
+            return;
+        }
+
+        if (land.rigs.length >= CONFIG.rigs.maxPerLand) {
+            alert(`Максимум ${CONFIG.rigs.maxPerLand} вышек на один участок!`);
+            return;
+        }
+
+        // Проверка слотов уже не нужна - слоты выделяются для участков, а не для вышек
+
+        this.state.money -= rig.price;
+        land.rigs.push({
+            type: rigId,
+            installedAt: Date.now()
+        });
+
+        this.updateUI();
+        this.openLandModal(landId);
+        this.saveGame();
     }
 
     removeRig(landId, rigIndex) {
         const land = this.state.lands.find(l => l.id === landId);
 
-        if (land && land.rigs && land.rigs[rigIndex]) {
-            const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rigs[rigIndex].type);
-            const refund = Math.floor(rigConfig.price * 0.5); // Возврат 50% стоимости
-
-            this.state.money += refund;
-            land.rigs.splice(rigIndex, 1);
-
-            this.updateUI();
-            this.openLandModal(landId);
-            this.saveGame();
-
-            this.showFloatingNumber(refund, window.innerWidth / 2, window.innerHeight / 2);
+        if (!land) {
+            alert('Участок не найден!');
+            return;
         }
+
+        if (!land.rigs || rigIndex >= land.rigs.length) {
+            alert('Вышка не найдена!');
+            return;
+        }
+
+        const rigConfig = CONFIG.rigs.types.find(r => r.id === land.rigs[rigIndex].type);
+        
+        if (!rigConfig) {
+            alert('Ошибка: конфигурация вышки не найдена!');
+            return;
+        }
+
+        const refund = Math.floor(rigConfig.price * 0.5); // Возврат 50% стоимости
+
+        if (!confirm(`Удалить вышку "${rigConfig.name}"? Вы получите обратно ${this.formatNumber(refund)}₽ (50% стоимости)`)) {
+            return;
+        }
+
+        this.state.money += refund;
+        land.rigs.splice(rigIndex, 1);
+
+        this.updateUI();
+        this.openLandModal(landId);
+        this.saveGame();
+
+        this.showFloatingNumber(refund, window.innerWidth / 2, window.innerHeight / 2);
     }
     
     buyRigSlot() {
         const cost = Math.floor(CONFIG.rigSlots.baseCost * Math.pow(CONFIG.rigSlots.costMultiplier, this.state.purchasedSlots));
         
-        if (this.state.money >= cost) {
-            this.state.money -= cost;
-            this.state.rigSlots++;
-            this.state.purchasedSlots++;
-            
-            this.updateUI();
-            this.renderMyLands();
-            this.saveGame();
+        if (this.state.money < cost) {
+            alert('Недостаточно денег для покупки слота!');
+            return;
         }
+
+        this.state.money -= cost;
+        this.state.rigSlots++;
+        this.state.purchasedSlots++;
+        
+        this.showFloatingNotification(`✅ Куплен новый слот! Теперь доступно ${this.state.rigSlots} слотов`, 3000);
+        
+        this.updateUI();
+        this.renderMyLands();
+        this.saveGame();
     }
     
     deleteDepletedLand(landId) {
         const land = this.state.lands.find(l => l.id === landId);
 
-        if (!land || !land.owned || land.currentOil > 0) {
+        if (!land) {
+            alert('Участок не найден!');
+            return;
+        }
+
+        if (!land.owned) {
+            alert('Участок не принадлежит вам!');
+            return;
+        }
+
+        if (land.currentOil > 0) {
+            alert('Нельзя удалить участок с нефтью!');
             return;
         }
 
@@ -862,7 +968,7 @@ class Game {
             return;
         }
 
-        if (confirm(`Удалить истощенную скважину за ${this.formatNumber(deleteCost)}₽?`)) {
+        if (confirm(`Удалить истощенную скважину за ${this.formatNumber(deleteCost)}₽? Это освободит слот для нового участка.`)) {
             this.state.money -= deleteCost;
 
             // Удаляем участок из списка
@@ -877,7 +983,13 @@ class Game {
     upgradeContract(companyId) {
         const contract = this.state.companyContracts[companyId];
         const company = CONFIG.companies.list.find(c => c.id === companyId);
-        const currentLevel = contract.level;
+        
+        if (!contract || !company) {
+            alert('Ошибка: контракт или компания не найдены!');
+            return;
+        }
+
+        const currentLevel = contract.level || 1;
         const nextLevel = currentLevel + 1;
 
         if (nextLevel > company.contractLevels.length) {
@@ -885,7 +997,14 @@ class Game {
             return;
         }
 
-        const upgradeCost = company.contractLevels.find(l => l.level === nextLevel).cost;
+        const nextLevelConfig = company.contractLevels.find(l => l.level === nextLevel);
+        
+        if (!nextLevelConfig) {
+            alert('Ошибка: конфигурация уровня не найдена!');
+            return;
+        }
+
+        const upgradeCost = nextLevelConfig.cost;
 
         if (this.state.money < upgradeCost) {
             alert(`Недостаточно денег для улучшения контракта. Требуется: ${this.formatNumber(upgradeCost)}₽`);
@@ -902,6 +1021,8 @@ class Game {
                 stateCompany.contractLevel = nextLevel;
             }
 
+            this.showFloatingNotification(`✅ Контракт с ${company.name} улучшен до уровня ${nextLevel}!`, 3000);
+
             this.updateUI();
             this.renderCompanies();
             this.saveGame();
@@ -912,47 +1033,50 @@ class Game {
         const level = this.state.clickSkillLevel;
         const cost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, level - 1));
 
-        if (this.state.money >= cost) {
-            this.state.money -= cost;
-            this.state.clickSkillLevel++;
-
-            // Новая формула прогрессии:
-            // Уровень 1: 1₽
-            // Уровень 2: 3₽ (+2)
-            // Уровень 3: 5₽ (+2)
-            // Уровень 4: 8₽ (+3)
-            // Уровень 5: 11₽ (+3)
-            // Уровень 6: 15₽ (+4)
-            // Уровень 7: 19₽ (+4)
-            // Уровень 8: 24₽ (+5)
-            // Далее прирост замедляется
-
-            const newLevel = this.state.clickSkillLevel;
-            let power;
-
-            if (newLevel === 1) {
-                power = 1;
-            } else if (newLevel <= 3) {
-                power = 1 + (newLevel - 1) * 2; // 1, 3, 5
-            } else if (newLevel <= 5) {
-                power = 5 + (newLevel - 3) * 3; // 8, 11
-            } else if (newLevel <= 7) {
-                power = 11 + (newLevel - 5) * 4; // 15, 19
-            } else if (newLevel <= 10) {
-                power = 19 + (newLevel - 7) * 5; // 24, 29, 34
-            } else {
-                // После 10 уровня - еще медленнее
-                power = 34 + (newLevel - 10) * 3;
-            }
-
-            this.state.clickPower = power;
-
-            this.updateUI();
-            this.saveGame();
-
-            // Check achievements after upgrade
-            setTimeout(() => this.checkAchievements(), 100);
+        if (this.state.money < cost) {
+            alert('Недостаточно денег!');
+            return;
         }
+
+        this.state.money -= cost;
+        this.state.clickSkillLevel++;
+
+        // Новая формула прогрессии:
+        // Уровень 1: 1₽
+        // Уровень 2: 3₽ (+2)
+        // Уровень 3: 5₽ (+2)
+        // Уровень 4: 8₽ (+3)
+        // Уровень 5: 11₽ (+3)
+        // Уровень 6: 15₽ (+4)
+        // Уровень 7: 19₽ (+4)
+        // Уровень 8: 24₽ (+5)
+        // Далее прирост замедляется
+
+        const newLevel = this.state.clickSkillLevel;
+        let power;
+
+        if (newLevel === 1) {
+            power = 1;
+        } else if (newLevel <= 3) {
+            power = 1 + (newLevel - 1) * 2; // 1, 3, 5
+        } else if (newLevel <= 5) {
+            power = 5 + (newLevel - 3) * 3; // 8, 11
+        } else if (newLevel <= 7) {
+            power = 11 + (newLevel - 5) * 4; // 15, 19
+        } else if (newLevel <= 10) {
+            power = 19 + (newLevel - 7) * 5; // 24, 29, 34
+        } else {
+            // После 10 уровня - еще медленнее
+            power = 34 + (newLevel - 10) * 3;
+        }
+
+        this.state.clickPower = power;
+
+        this.updateUI();
+        this.saveGame();
+
+        // Check achievements after upgrade
+        setTimeout(() => this.checkAchievements(), 100);
     }
 
 
@@ -1100,6 +1224,11 @@ class Game {
             this.updateOwnCompany();
         }, 1000);
 
+        // Обновляем кулдауны компаний каждую секунду для точного отображения
+        setInterval(() => {
+            this.updateCompanyCooldowns();
+        }, 1000);
+
         // Новые игровые механики для вовлеченности
         setInterval(() => {
             this.showRandomTip();
@@ -1108,6 +1237,39 @@ class Game {
         setInterval(() => {
             this.checkAchievements();
         }, 30000); // Каждые 30 секунд
+    }
+
+    updateCompanyCooldowns() {
+        // Проверяем если мы на вкладке продажи
+        const activeTab = document.querySelector('.nav-tab.active');
+        if (!activeTab || activeTab.dataset.tab !== 'sell') {
+            return; // Не обновляем если не на вкладке продажи
+        }
+
+        const now = Date.now();
+        let needsUpdate = false;
+
+        this.state.companies.forEach(company => {
+            if (company.cooldownUntil && now < company.cooldownUntil) {
+                needsUpdate = true; // Есть хотя бы одна компания в кулдауне
+            } else if (company.cooldownUntil && now >= company.cooldownUntil) {
+                // Кулдаун закончился - восстанавливаем спрос
+                company.cooldownUntil = null;
+                const contractLevel = this.state.companyContracts[company.id]?.level || 1;
+                const contractMultiplier = company.contractLevels.find(l => l.level === contractLevel).maxDemandMultiplier;
+                
+                company.currentDemand = Math.floor(
+                    Math.random() * (company.maxDemand * contractMultiplier - company.minDemand) + company.minDemand
+                );
+                
+                needsUpdate = true;
+            }
+        });
+
+        // Обновляем интерфейс только если есть изменения
+        if (needsUpdate) {
+            this.renderCompanies();
+        }
     }
 
     startPlayTimeCounter() {
@@ -1132,28 +1294,102 @@ class Game {
     }
 
     checkAchievements() {
+        // Инициализируем массив достижений если его нет
+        if (!this.state.achievements) {
+            this.state.achievements = [];
+        }
+
         const achievements = [
-            { id: 'first_click', condition: () => this.state.clickSkillLevel >= 2, reward: 100, text: '🎉 Первый клик! +100₽' },
-            { id: 'first_land', condition: () => this.state.lands.filter(l => l.owned).length >= 1, reward: 500, text: '🏜️ Первый участок! +500₽' },
-            { id: 'first_rig', condition: () => this.state.lands.some(l => l.rigs && l.rigs.length > 0), reward: 1000, text: '🏭 Первая вышка! +1000₽' },
-            { id: 'first_sale', condition: () => this.state.money >= 10000, reward: 2000, text: '💰 Первая продажа! +2000₽' },
-            { id: 'millionaire', condition: () => this.state.money >= 1000000, reward: 10000, text: '💎 Миллионер! +10000₽' },
-            { id: 'oil_tycoon', condition: () => this.state.availableOil >= 10000, reward: 5000, text: '🛢️ Нефтяной магнат! +5000₽' }
+            { 
+                id: 'first_click', 
+                condition: () => this.state.clickSkillLevel >= 2, 
+                reward: 100, 
+                text: '🎉 Первое улучшение клика! +100₽' 
+            },
+            { 
+                id: 'first_land', 
+                condition: () => this.state.lands.filter(l => l.owned).length >= 1, 
+                reward: 500, 
+                text: '🏜️ Первый участок! +500₽' 
+            },
+            { 
+                id: 'first_rig', 
+                condition: () => this.state.lands.some(l => l.owned && l.rigs && l.rigs.length > 0), 
+                reward: 1000, 
+                text: '🏭 Первая вышка! +1000₽' 
+            },
+            { 
+                id: 'first_sale', 
+                condition: () => (this.state.totalOilSales || 0) >= 1, 
+                reward: 500, 
+                text: '💰 Первая продажа нефти! +500₽' 
+            },
+            { 
+                id: 'five_lands', 
+                condition: () => this.state.lands.filter(l => l.owned).length >= 5, 
+                reward: 3000, 
+                text: '🌍 5 участков! +3000₽' 
+            },
+            { 
+                id: 'money_10k', 
+                condition: () => this.state.money >= 10000, 
+                reward: 1000, 
+                text: '💵 10,000₽ накоплено! +1000₽' 
+            },
+            { 
+                id: 'rich', 
+                condition: () => this.state.money >= 100000, 
+                reward: 5000, 
+                text: '💎 100,000₽ накоплено! +5000₽' 
+            },
+            { 
+                id: 'millionaire', 
+                condition: () => this.state.money >= 1000000, 
+                reward: 10000, 
+                text: '👑 Миллионер! +10000₽' 
+            },
+            { 
+                id: 'oil_collector', 
+                condition: () => this.state.availableOil >= 1000, 
+                reward: 1000, 
+                text: '🛢️ 1000 баррелей запас! +1000₽' 
+            },
+            { 
+                id: 'oil_tycoon', 
+                condition: () => this.state.availableOil >= 10000, 
+                reward: 5000, 
+                text: '⚡ Нефтяной магнат! +5000₽' 
+            }
         ];
 
+        let hasNewAchievement = false;
+
         achievements.forEach(achievement => {
-            if (achievement.condition() && !this.state.achievements?.includes(achievement.id)) {
-                this.state.achievements = this.state.achievements || [];
-                this.state.achievements.push(achievement.id);
-                this.state.money += achievement.reward;
-                this.showFloatingNotification(achievement.text, 8000);
-                this.updateUI();
-                this.saveGame();
+            try {
+                if (achievement.condition() && !this.state.achievements.includes(achievement.id)) {
+                    this.state.achievements.push(achievement.id);
+                    this.state.money += achievement.reward;
+                    this.showFloatingNotification(achievement.text, 8000);
+                    hasNewAchievement = true;
+                }
+            } catch (error) {
+                console.error('Error checking achievement:', achievement.id, error);
             }
         });
+
+        if (hasNewAchievement) {
+            this.updateUI();
+            this.saveGame();
+        }
     }
 
     showFloatingNotification(message, duration = 3000) {
+        // Проверяем, нет ли уже активного уведомления
+        const existingNotification = document.querySelector('.floating-notification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
+
         const notification = document.createElement('div');
         notification.className = 'floating-notification';
         notification.textContent = message;
@@ -1170,13 +1406,20 @@ class Game {
             z-index: 10000;
             box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
             animation: slideDown 0.5s ease-out;
+            max-width: 90vw;
+            text-align: center;
+            word-wrap: break-word;
         `;
 
         document.body.appendChild(notification);
 
         setTimeout(() => {
             notification.style.animation = 'slideUp 0.5s ease-in forwards';
-            setTimeout(() => notification.remove(), 500);
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 500);
         }, duration);
     }
 
@@ -1189,6 +1432,12 @@ class Game {
 
                 land.rigs.forEach(rig => {
                     const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                    
+                    if (!rigConfig) {
+                        console.error('Invalid rig config:', rig.type);
+                        return;
+                    }
+
                     const extracted = Math.min(rigConfig.extractionRate, land.currentOil);
                     const lost = extracted * (rigConfig.lossPercentage / 100);
                     const effective = extracted - lost;
@@ -1238,18 +1487,33 @@ class Game {
     }
 
     updateUI() {
-        document.getElementById('money').textContent = this.formatNumber(Math.floor(this.state.money));
-        document.getElementById('availableOil').textContent = this.formatNumber(Math.floor(this.state.availableOil));
-        document.getElementById('clickPower').textContent = this.state.clickPower;
+        // Защита от NaN и некорректных значений
+        const safeMoney = Math.max(0, Math.floor(this.state.money || 0));
+        const safeOil = Math.max(0, Math.floor(this.state.availableOil || 0));
+        const safeClickPower = Math.max(1, this.state.clickPower || 1);
+        const safeClickSkillLevel = Math.max(1, this.state.clickSkillLevel || 1);
+
+        const moneyElement = document.getElementById('money');
+        const oilElement = document.getElementById('availableOil');
+        const clickPowerElement = document.getElementById('clickPower');
+        const oilExtractionElement = document.getElementById('oilExtractionRate');
+        const clickSkillLevelElement = document.getElementById('clickSkillLevel');
+        const clickSkillBonusElement = document.getElementById('clickSkillBonus');
+        const clickSkillCostElement = document.getElementById('clickSkillCost');
+        const upgradeClickSkillButton = document.getElementById('upgradeClickSkill');
+
+        if (moneyElement) moneyElement.textContent = this.formatNumber(safeMoney);
+        if (oilElement) oilElement.textContent = this.formatNumber(safeOil);
+        if (clickPowerElement) clickPowerElement.textContent = safeClickPower;
 
         // Правильное отображение добычи нефти в секунду
         const extractionRate = this.calculateOilExtractionRate();
-        document.getElementById('oilExtractionRate').textContent = extractionRate.toFixed(2);
+        if (oilExtractionElement) oilExtractionElement.textContent = extractionRate.toFixed(2);
 
-        document.getElementById('clickSkillLevel').textContent = this.state.clickSkillLevel;
+        if (clickSkillLevelElement) clickSkillLevelElement.textContent = safeClickSkillLevel;
 
         // Показываем следующую силу клика вместо текущей
-        const nextLevel = this.state.clickSkillLevel + 1;
+        const nextLevel = safeClickSkillLevel + 1;
         let nextPower;
         if (nextLevel === 1) {
             nextPower = 1;
@@ -1264,15 +1528,15 @@ class Game {
         } else {
             nextPower = 34 + (nextLevel - 10) * 3;
         }
-        document.getElementById('clickSkillBonus').textContent = nextPower;
+        if (clickSkillBonusElement) clickSkillBonusElement.textContent = nextPower;
 
-        const clickCost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, this.state.clickSkillLevel - 1));
-        document.getElementById('clickSkillCost').textContent = this.formatNumber(clickCost);
-        document.getElementById('upgradeClickSkill').disabled = this.state.money < clickCost;
+        const clickCost = Math.floor(CONFIG.skills.clickPower.baseCost * Math.pow(CONFIG.skills.clickPower.costMultiplier, safeClickSkillLevel - 1));
+        if (clickSkillCostElement) clickSkillCostElement.textContent = this.formatNumber(clickCost);
+        if (upgradeClickSkillButton) upgradeClickSkillButton.disabled = safeMoney < clickCost;
 
         const sellOilElement = document.getElementById('sellAvailableOil');
         if (sellOilElement) {
-            sellOilElement.textContent = `${this.formatNumber(Math.floor(this.state.availableOil))} баррелей`;
+            sellOilElement.textContent = `${this.formatNumber(safeOil)} баррелей`;
         }
 
         // Обновляем отображение уровня игрока для админ панели
@@ -1308,6 +1572,11 @@ class Game {
     }
 
     formatNumber(num) {
+        // Защита от NaN и undefined
+        if (typeof num !== 'number' || isNaN(num)) {
+            return '0';
+        }
+
         if (num >= 1000000) {
             return (num / 1000000).toFixed(1) + 'M';
         } else if (num >= 1000) {
@@ -1317,6 +1586,10 @@ class Game {
     }
 
     async saveGame() {
+        // Обновляем lastOnlineTime только когда игрок активен, НЕ при каждом сохранении
+        // Это нужно для корректного расчета оффлайн прогресса
+        // lastOnlineTime обновляется только в checkOfflineProgress() после расчета прогресса
+        
         const saveData = {
             state: this.state,
             version: '1.2', // Updated version with Firebase support
@@ -1400,9 +1673,20 @@ class Game {
 
     checkOfflineProgress() {
         const now = Date.now();
-        const offlineTime = now - this.state.lastOnlineTime;
+        
+        // Инициализируем lastOnlineTime если его нет
+        if (!this.state.lastOnlineTime) {
+            this.state.lastOnlineTime = now;
+            return;
+        }
 
-        if (offlineTime > 10000) { // More than 10 seconds offline
+        const offlineTime = now - this.state.lastOnlineTime;
+        
+        // Показываем оффлайн прогресс только если прошло больше 30 секунд
+        // Это предотвратит показ модального окна при быстрых перезагрузках
+        const minOfflineTime = 30000; // 30 секунд
+
+        if (offlineTime > minOfflineTime) {
             const cappedOfflineTime = Math.min(offlineTime, CONFIG.offlineProgress.maxTime);
             const efficiency = CONFIG.offlineProgress.efficiency;
             const effectiveTime = cappedOfflineTime * efficiency;
@@ -1416,6 +1700,12 @@ class Game {
 
                     land.rigs.forEach(rig => {
                         const rigConfig = CONFIG.rigs.types.find(r => r.id === rig.type);
+                        
+                        if (!rigConfig) {
+                            console.error('Invalid rig config for offline progress:', rig.type);
+                            return;
+                        }
+
                         const extractedPerSecond = rigConfig.extractionRate;
                         const extracted = Math.min(extractedPerSecond * (effectiveTime / 1000), land.currentOil);
                         const lost = extracted * (rigConfig.lossPercentage / 100);
@@ -1439,14 +1729,36 @@ class Game {
                 this.state.availableOil += offlineOil;
                 this.state.offlineProgress = offlineOil;
 
-                this.showOfflineModal(offlineOil, Math.floor(cappedOfflineTime / 1000 / 60));
+                // Показываем только реальное время оффлайна
+                const actualMinutesOffline = Math.floor(offlineTime / 1000 / 60);
+                this.showOfflineModal(offlineOil, actualMinutesOffline);
             }
         }
 
+        // ВАЖНО: Обновляем lastOnlineTime ПОСЛЕ расчета прогресса
+        // Это гарантирует, что при следующем запуске игры мы правильно рассчитаем оффлайн время
         this.state.lastOnlineTime = now;
+        
+        // Сохраняем обновленное время
+        this.saveGame();
     }
 
     showOfflineModal(oilGained, minutesOffline) {
+        // Форматируем время красиво
+        let timeText = '';
+        if (minutesOffline < 1) {
+            timeText = 'меньше минуты';
+        } else if (minutesOffline < 60) {
+            timeText = `${minutesOffline} ${this.pluralize(minutesOffline, 'минуту', 'минуты', 'минут')}`;
+        } else {
+            const hours = Math.floor(minutesOffline / 60);
+            const mins = minutesOffline % 60;
+            timeText = `${hours} ${this.pluralize(hours, 'час', 'часа', 'часов')}`;
+            if (mins > 0) {
+                timeText += ` ${mins} ${this.pluralize(mins, 'минуту', 'минуты', 'минут')}`;
+            }
+        }
+
         const modal = document.createElement('div');
         modal.className = 'modal active';
         modal.id = 'offlineModal';
@@ -1456,7 +1768,7 @@ class Game {
                 <h2>Добро пожаловать обратно!</h2>
                 <div style="text-align: center; padding: 20px;">
                     <div style="font-size: 48px; margin: 20px 0;">🛢️</div>
-                    <p>Пока вас не было ${minutesOffline} минут, ваши вышки добыли:</p>
+                    <p>Пока вас не было ${timeText}, ваши вышки добыли:</p>
                     <p style="font-size: 24px; color: var(--accent-gold); font-weight: bold;">+${this.formatNumber(oilGained)} баррелей нефти</p>
                     <button class="btn-buy" id="closeOfflineBtn" style="margin-top: 20px;">Отлично!</button>
                 </div>
@@ -1472,6 +1784,20 @@ class Game {
         const closeOfflineBtn = document.getElementById('closeOfflineBtn');
         if (closeOfflineBtn) {
             closeOfflineBtn.addEventListener('click', () => modal.remove());
+        }
+    }
+
+    pluralize(number, one, few, many) {
+        // Функция для правильного склонения русских слов
+        const mod10 = number % 10;
+        const mod100 = number % 100;
+        
+        if (mod10 === 1 && mod100 !== 11) {
+            return one;
+        } else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+            return few;
+        } else {
+            return many;
         }
     }
 
@@ -1520,26 +1846,60 @@ class Game {
     resolveEvent(eventConfig, effect, choiceIndex = null) {
         this.closeEventModal();
 
+        if (!effect) {
+            console.error('No effect provided for event:', eventConfig);
+            return;
+        }
+
+        let resultMessage = '';
+
         // Apply effects
         if (effect.money) {
             this.state.money += effect.money;
+            const sign = effect.money > 0 ? '+' : '';
+            resultMessage += `${sign}${this.formatNumber(effect.money)}₽`;
         }
+        
         if (effect.oil) {
             this.state.availableOil += effect.oil;
+            const sign = effect.oil > 0 ? '+' : '';
+            if (resultMessage) resultMessage += ' и ';
+            resultMessage += `${sign}${this.formatNumber(effect.oil)} баррелей`;
         }
+        
         if (effect.priceMultiplier) {
             this.state.priceMultiplier = effect.priceMultiplier;
             this.state.priceMultiplierEndTime = Date.now() + (effect.duration || 0);
+            
+            const multiplierText = effect.priceMultiplier > 1 ? 
+                `+${Math.round((effect.priceMultiplier - 1) * 100)}%` : 
+                `-${Math.round((1 - effect.priceMultiplier) * 100)}%`;
+            
+            if (resultMessage) resultMessage += ' и ';
+            resultMessage += `${multiplierText} к ценам на ${Math.round(effect.duration / 60000)} мин`;
         }
+        
         if (effect.freeRig) {
             // Add free rig to first available land
-            const availableLand = this.state.lands.find(l => l.owned && l.rigs.length < CONFIG.rigs.maxPerLand);
+            const availableLand = this.state.lands.find(l => l.owned && l.rigs && l.rigs.length < CONFIG.rigs.maxPerLand);
             if (availableLand) {
                 availableLand.rigs.push({
                     type: effect.freeRig,
                     installedAt: Date.now()
                 });
+                
+                const rigConfig = CONFIG.rigs.types.find(r => r.id === effect.freeRig);
+                if (resultMessage) resultMessage += ' и ';
+                resultMessage += `бесплатная ${rigConfig.name}`;
+            } else {
+                if (resultMessage) resultMessage += ', но ';
+                resultMessage += 'нет места для вышки';
             }
+        }
+
+        // Показываем результат события
+        if (resultMessage) {
+            this.showFloatingNotification(`📢 ${eventConfig.title}: ${resultMessage}`, 6000);
         }
 
         this.updateUI();
@@ -1867,6 +2227,7 @@ class Game {
         const now = Date.now();
 
         this.state.companies.forEach(company => {
+            // Обновляем только цену, НЕ трогаем спрос!
             const changePercent = (Math.random() - 0.5) * 2 * CONFIG.companies.maxPriceChange;
             const basePrice = company.basePrice * company.currentPriceMultiplier * this.state.priceMultiplier;
             const priceChange = basePrice * changePercent;
@@ -1881,24 +2242,17 @@ class Game {
             // Проверяем кулдаун - если кулдаун закончился, восстанавливаем спрос
             if (company.cooldownUntil && now >= company.cooldownUntil) {
                 company.cooldownUntil = null;
+                // Восстанавливаем спрос только при окончании кулдауна
                 company.currentDemand = Math.floor(
                     Math.random() * (company.maxDemand * contractMultiplier - company.minDemand) + company.minDemand
                 );
-            }
-
-            // Обновляем спрос только если НЕ в кулдауне
-            if (!company.cooldownUntil) {
-                company.currentDemand = Math.floor(
-                    Math.random() * (company.maxDemand * contractMultiplier - company.minDemand) + company.minDemand
-                );
-
+                
                 // Проверяем что currentMinBuy не больше currentDemand
                 if (company.currentMinBuy > company.currentDemand) {
                     const configCompany = CONFIG.companies.list.find(c => c.id === company.id);
-                    // Берём максимальный минимум, который меньше или равен спросу
                     const validMinBuys = configCompany.possibleMinBuy.filter(minBuy => minBuy <= company.currentDemand);
                     if (validMinBuys.length > 0) {
-                        company.currentMinBuy = validMinBuys[validMinBuys.length - 1]; // Берём наибольший подходящий
+                        company.currentMinBuy = validMinBuys[validMinBuys.length - 1];
                     } else {
                         company.currentMinBuy = Math.min(...configCompany.possibleMinBuy);
                     }
@@ -1973,8 +2327,18 @@ class Game {
         const canSell = hasEnoughOil && companyCanBuy;
 
         let statusMessage = '';
+        let cooldownProgressHTML = '';
+        
         if (isOnCooldown) {
-            statusMessage = `Кулдаун ${cooldownRemaining} сек`;
+            statusMessage = `Кулдаун: ${cooldownRemaining} сек`;
+            // Прогресс бар для кулдауна
+            const totalCooldown = 60; // 60 секунд
+            const progress = ((totalCooldown - cooldownRemaining) / totalCooldown) * 100;
+            cooldownProgressHTML = `
+                <div class="cooldown-progress-bar" style="width: 100%; height: 4px; background: var(--bg-darker); border-radius: 2px; margin-top: 5px; overflow: hidden;">
+                    <div style="width: ${progress}%; height: 100%; background: var(--accent-gold); transition: width 1s linear;"></div>
+                </div>
+            `;
         } else if (!companyCanBuy) {
             statusMessage = 'Не покупает';
         } else if (!hasEnoughOil) {
@@ -2020,8 +2384,9 @@ class Game {
                 </div>
                 <div class="company-info-row">
                     <span>${statusMessage}</span>
-                    <span style="color: ${canSell ? 'var(--accent-gold)' : 'var(--danger)'}">${this.formatNumber(maxSellAmount)} баррелей</span>
+                    <span style="color: ${canSell ? 'var(--accent-gold)' : 'var(--danger)'}">${isOnCooldown ? '' : this.formatNumber(maxSellAmount) + ' баррелей'}</span>
                 </div>
+                ${cooldownProgressHTML}
                 ${contractHTML}
             </div>
             <div class="company-sell-section">
@@ -2041,11 +2406,23 @@ class Game {
 
     sellOil(companyId) {
         const company = this.state.companies.find(c => c.id === companyId);
+        
+        if (!company) {
+            alert('Компания не найдена!');
+            return;
+        }
+
         const input = document.getElementById(`sell-${companyId}`);
+        
+        if (!input) {
+            alert('Ошибка интерфейса!');
+            return;
+        }
+
         const amount = parseInt(input.value) || 0;
 
         // Реальный минимум для продажи
-        const effectiveMinBuy = Math.min(company.currentMinBuy, company.currentDemand);
+        const effectiveMinBuy = Math.min(company.currentMinBuy || 1, company.currentDemand || 0);
 
         // Проверка: введено ли корректное количество
         if (amount <= 0 || isNaN(amount)) {
@@ -2060,8 +2437,9 @@ class Game {
         }
 
         // Проверка: не превышает ли количество доступную нефть
-        if (amount > Math.floor(this.state.availableOil)) {
-            alert(`У вас только ${Math.floor(this.state.availableOil)} баррелей нефти`);
+        const availableOil = Math.floor(this.state.availableOil);
+        if (amount > availableOil) {
+            alert(`У вас только ${availableOil} баррелей нефти`);
             return;
         }
 
@@ -2072,17 +2450,23 @@ class Game {
         }
 
         // Все проверки прошли - продаем
-        const totalPrice = Math.floor(amount * company.currentPrice);
+        const totalPrice = Math.floor(amount * (company.currentPrice || 0));
         this.state.money += totalPrice;
         this.state.availableOil -= amount;
+        
+        // Увеличиваем счетчик продаж для достижения
+        this.state.totalOilSales = (this.state.totalOilSales || 0) + 1;
 
         // Уменьшаем спрос компании
         company.currentDemand -= amount;
 
-        // Если спрос упал до нуля или ниже - компания уходит в кулдаун на 1 минуту
+        // Если спрос упал до нуля или ниже - компания уходит в кулдаун
         if (company.currentDemand <= 0) {
             company.currentDemand = 0;
             company.cooldownUntil = Date.now() + 60000; // 1 минута кулдауна
+            
+            // Показываем уведомление о кулдауне
+            this.showFloatingNotification(`${company.name} ушла в кулдаун на 1 минуту`, 3000);
         }
 
         this.showFloatingNumber(totalPrice, window.innerWidth / 2, window.innerHeight / 2);
@@ -2192,7 +2576,8 @@ class Game {
             achievements: [],
             totalPlayTime: 0,
             playerLevel: 1,
-            playerLevelName: 'Новичок'
+            playerLevelName: 'Новичок',
+            totalOilSales: 0
         };
     }
 

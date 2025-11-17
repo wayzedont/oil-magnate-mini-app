@@ -1432,3 +1432,43 @@ body {
         font-size: 18px;
     }
 }
+
+/* Event Modal Styles */
+.event-content {
+    padding: 20px 0;
+}
+
+.event-content p {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text-light);
+    margin-bottom: 20px;
+}
+
+.event-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.event-choices .btn-buy {
+    width: 100%;
+    padding: 15px;
+    font-size: 15px;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.4;
+}
+
+#eventTitle {
+    color: var(--accent-gold);
+    font-size: 22px;
+    margin-bottom: 10px;
+}
+
+/* Cooldown progress bar */
+.cooldown-progress-bar {
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
