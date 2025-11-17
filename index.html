@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Нефтяной магнат</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Firebase -->
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+      import { getFirestore, doc, setDoc, getDoc, collection, query, getDocs } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+      // Make functions available globally
+      window.collection = collection;
+      window.doc = doc;
+      window.setDoc = setDoc;
+      window.getDoc = getDoc;
+      window.query = query;
+      window.getDocs = getDocs;
+
+      // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+      const firebaseConfig = {
+        apiKey: "AIzaSyDzN2GdDHsPmsxs-0KyWtfFFIBsdhezFrg",
+        authDomain: "renaissance-8a16f.firebaseapp.com",
+        projectId: "renaissance-8a16f",
+        storageBucket: "renaissance-8a16f.firebasestorage.app",
+        messagingSenderId: "172376303650",
+        appId: "1:172376303650:web:7e9e18edfe957e131a427b",
+        measurementId: "G-G8WMLBPJ0D"
+      };
+
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      window.db = getFirestore(app);
+    </script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <div class="header">
+            <button class="profile-button" id="profileButton">
+                <span class="profile-icon">👤</span>
+            </button>
+            <div class="money-display">
+                <span class="money-icon">💰</span>
+                <span id="money">0</span>
+                <span class="currency">₽</span>
+            </div>
+            <div class="oil-display">
+                <span class="oil-icon">🛢️</span>
+                <span id="availableOil">0</span>
+                <span class="unit">б.</span>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-tab="work">Работа</button>
+            <button class="nav-tab" data-tab="sell">Продажа</button>
+            <button class="nav-tab" data-tab="myLands">Скважины</button>
+            <button class="nav-tab" data-tab="lands">Участки</button>
+            <button class="nav-tab" data-tab="company">Компания</button>
+        </div>
+
+        <!-- Tab: Work -->
+        <div class="tab-content active" data-tab="work">
+            <div class="work-screen">
+                <div class="click-stats">
+                    <div class="stat-row">
+                        <p>Доход за клик: <span id="clickPower">1</span>₽</p>
+                    </div>
+                    <div class="stat-row">
+                        <p>Добыча нефти: <span id="oilExtractionRate">0</span> б./сек</p>
+                    </div>
+                </div>
+                
+                <button class="work-button" id="workButton">
+                    <div class="work-icon">⛏️</div>
+                    <div class="work-text">Работать</div>
+                </button>
+                
+                <div class="upgrade-section">
+                    <div class="upgrade-card">
+                        <div class="upgrade-info">
+                            <h3>⚡ Сила клика</h3>
+                            <p>Уровень: <span id="clickSkillLevel">1</span></p>
+                            <p>Доход: <span id="clickSkillBonus">1</span>₽ за клик</p>
+                        </div>
+                        <button class="btn-upgrade-main" id="upgradeClickSkill">
+                            Улучшить<br><span id="clickSkillCost">100</span>₽
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="floatingNumbers"></div>
+                <div class="bonus-circle" id="bonusCircle" style="display: none;">
+                    <span class="bonus-text">x2</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Sell -->
+        <div class="tab-content" data-tab="sell">
+            <div class="sell-screen">
+                <h2>Продажа нефти</h2>
+                <div class="available-oil-banner">
+                    <span>Доступно для продажи:</span>
+                    <span id="sellAvailableOil" class="oil-amount">0 баррелей</span>
+                </div>
+                <div class="companies-list" id="companiesList"></div>
+            </div>
+        </div>
+
+        <!-- Tab: My Lands -->
+        <div class="tab-content" data-tab="myLands">
+            <div class="my-lands-screen">
+                <div class="lands-header">
+                    <h2>Мои скважины</h2>
+                    <button class="btn-buy-slot" id="buySlotButton">
+                        ➕ Купить слот
+                        <span id="slotCost" style="font-size: 11px; display: block; margin-top: 3px;"></span>
+                    </button>
+                </div>
+                <div class="slots-info" id="slotsInfo">
+                    <p>Слотов занято: <span id="usedSlots">0</span>/<span id="totalSlots">2</span></p>
+                </div>
+                <div class="lands-grid" id="myLandsGrid"></div>
+                <div id="noLandsMessage" class="no-lands-message">
+                    <p>У вас еще нет скважин</p>
+                    <p style="color: var(--text-gray); font-size: 14px;">Купите участки во вкладке "Участки"</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Lands -->
+        <div class="tab-content" data-tab="lands">
+            <div class="lands-header">
+                <h2>Нефтяные участки</h2>
+                <button class="btn-generate" id="generateLands">
+                    🔄 Новые участки
+                    <span id="generationLimit" style="font-size: 11px; display: block; margin-top: 3px;"></span>
+                </button>
+            </div>
+            <div class="lands-grid" id="landsGrid"></div>
+        </div>
+
+        <!-- Tab: Company -->
+        <div class="tab-content" data-tab="company">
+            <div class="company-screen">
+                <div class="company-header">
+                    <h2>Моя компания</h2>
+                    <button class="btn-generate" id="createOwnCompany" style="display: none;">
+                        🏭 Создать компанию
+                        <span style="font-size: 11px; display: block; margin-top: 3px; word-break: break-word;">25,000₽</span>
+                    </button>
+                </div>
+                <div id="companyPlaceholder" class="no-company-message">
+                    <p>У вас еще нет компании</p>
+                    <p style="color: var(--text-gray); font-size: 14px;">Создайте компанию, чтобы начать производство</p>
+                </div>
+                <div id="companyManagement" style="display: none;">
+                    <div class="company-info">
+                        <p>Управление производством и закупками</p>
+                    </div>
+                    <div class="production-section">
+                        <h3>Производство</h3>
+                        <div id="productsList"></div>
+                    </div>
+                    <div class="buyback-section">
+                        <h3>Управление компанией</h3>
+                        <div class="company-info-card">
+                            <p>Улучшайте производство для получения большей прибыли!</p>
+                            <p>Каждое улучшение повышает цену продажи и снижает затраты.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Profile -->
+        <div class="modal" id="profileModal">
+            <div class="modal-content">
+                <button class="modal-close" id="closeProfileModal">×</button>
+                <h2>Профиль игрока</h2>
+                
+                <div class="profile-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-info">
+                            <p class="stat-label">Всего денег</p>
+                            <p class="stat-value" id="profileMoney">0₽</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon">🛢️</div>
+                        <div class="stat-info">
+                            <p class="stat-label">Доступно нефти</p>
+                            <p class="stat-value" id="profileOil">0 б.</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon">🏗️</div>
+                        <div class="stat-info">
+                            <p class="stat-label">Скважины в работе</p>
+                            <p class="stat-value" id="profileLands">0</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-icon">⚡</div>
+                        <div class="stat-info">
+                            <p class="stat-label">Доход за клик</p>
+                            <p class="stat-value" id="profileClickPower">1₽</p>
+                        </div>
+                    </div>
+
+                    <div class="stat-card telegram-user" id="telegramUserCard" style="display: none;">
+                        <div class="stat-icon">👤</div>
+                        <div class="stat-info">
+                            <p class="stat-label">Telegram пользователь</p>
+                            <p class="stat-value" id="telegramUserName">Неизвестно</p>
+                            <p class="stat-value" id="telegramUserId" style="font-size: 12px; color: var(--text-gray);">ID: ???</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="profile-actions">
+                    <button class="btn-danger" id="resetProgressButton">🔄 Сбросить прогресс</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Land Details -->
+        <div class="modal" id="landModal">
+            <div class="modal-content">
+                <button class="modal-close" id="closeLandModal">×</button>
+                <h2>Участок #<span id="landId"></span></h2>
+                <div class="land-details">
+                    <div class="detail-row">
+                        <span>Цена:</span>
+                        <span id="landPrice">0₽</span>
+                    </div>
+                    <div class="detail-row">
+                        <span>Запасы нефти:</span>
+                        <span id="landOilReserve">???</span>
+                    </div>
+                    <div class="detail-row quality" id="landQualityRow">
+                        <span>Оценка:</span>
+                        <span id="landQuality">???</span>
+                    </div>
+                </div>
+                <div class="land-actions">
+                    <button class="btn-analyze" id="analyzeLandButton" style="display: none;">
+                        🔬 Анализ (<span id="analyzeCost">0</span>₽)
+                    </button>
+                    <button class="btn-buy" id="buyLandButton">Купить участок</button>
+                </div>
+
+                <div class="rigs-section" id="rigsSection" style="display: none;">
+                    <h3>Установить вышку</h3>
+                    <div class="rigs-list" id="rigsList"></div>
+                    <div class="rig-status" id="rigStatus"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Event -->
+        <div class="modal" id="eventModal">
+            <div class="modal-content" style="max-width: 500px;">
+                <button class="modal-close" id="closeEventModal">×</button>
+                <h2 id="eventTitle">Событие</h2>
+                <div class="event-content">
+                    <p id="eventDescription"></p>
+                    <div id="eventChoices" class="event-choices"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
