@@ -22,8 +22,8 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     background: linear-gradient(135deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
     color: var(--text-light);
-    overflow-x: hidden;
-    min-height: 100vh;
+    overflow: hidden;
+    height: 100vh;
     user-select: none;
     -webkit-user-select: none;
     touch-action: manipulation;
@@ -32,9 +32,10 @@ body {
 #app {
     max-width: 600px;
     margin: 0 auto;
-    padding-bottom: 20px;
-    overflow-x: hidden;
-    overflow-y: auto;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 /* Header */
@@ -45,10 +46,9 @@ body {
     justify-content: space-between;
     align-items: center;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    position: sticky;
-    top: 0;
     z-index: 100;
     gap: 15px;
+    flex-shrink: 0;
 }
 
 .profile-button {
@@ -103,14 +103,12 @@ body {
 .nav-tabs {
     display: flex;
     background: var(--bg-card);
-    margin-top: 2px;
     padding: 8px;
     gap: 8px;
-    position: sticky;
-    top: 86px;
     z-index: 90;
     overflow-x: hidden;
     justify-content: space-around;
+    flex-shrink: 0;
 }
 
 .nav-tab {
@@ -141,7 +139,8 @@ body {
     animation: fadeIn 0.3s;
     overflow-x: hidden;
     overflow-y: auto;
-    max-height: calc(100vh - 130px);
+    flex: 1;
+    min-height: 0;
 }
 
 .tab-content.active {
@@ -152,7 +151,6 @@ body {
 .tab-content[data-tab="work"] {
     overflow: hidden !important;
     padding: 0;
-    height: calc(100vh - 130px); /* Высота экрана минус header (~82px) и nav (~48px) */
     position: relative;
 }
 
@@ -1448,13 +1446,6 @@ body {
         font-size: 18px;
     }
     
-    .tab-content[data-tab="work"] {
-        height: calc(100vh - 110px); /* Header меньше на мобильных */
-    }
-    
-    .tab-content {
-        max-height: calc(100vh - 110px);
-    }
 }
 
 /* Event Modal Styles */
